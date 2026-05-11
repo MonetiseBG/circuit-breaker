@@ -137,23 +137,51 @@ limits won't be enforceable mid-run for it — document that explicitly.
 
 ---
 
-## Release checklist
+## CI/CD
 
-This repo isn't on a CI pipeline yet, so do it by hand:
+Two workflows under `.github/workflows/`:
 
-1. Bump `version` in `package.json` (SemVer; we're 0.x so breaking changes
-   are minor bumps).
-2. `npm run prepublishOnly` — must pass cleanly.
-3. Commit. Tag `v<version>`.
-4. `npm publish --access public` (scoped packages require `--access public`
-   on first publish).
-5. Push tags: `git push --tags`.
+- **`ci.yml`** — runs on every push (any branch) and every PR targeting
+  `develop` or `main`. Matrix: Node 20 and 22. Steps: `npm ci`,
+  `npm run typecheck`, `npm test`, `npm run build`. Concurrent runs on the
+  same ref cancel each other.
+- **`release.yml`** — runs on push of tags matching `v*.*.*`. Verifies the
+  tag is reachable from `main` and that the tag version matches
+  `package.json`, then runs the same gates as CI and finally
+  `npm publish --access public --provenance`. Provenance requires
+  `id-token: write` and a public repo.
+
+Required repository secret: **`NPM_TOKEN`** — an npm automation token with
+publish rights for the `@monetisebg` scope. Set under
+*GitHub → Settings → Secrets and variables → Actions*.
+
+---
+
+## Release flow
+
+1. Land your changes on `develop` (PRs, merges, etc.).
+2. Open a PR `develop → main`. Merge once CI is green.
+3. Pull `main` locally and bump the version:
+   ```bash
+   git checkout main && git pull
+   npm version patch    # or minor / major; we're 0.x so breaking → minor
+   git push origin main --follow-tags
+   ```
+   `npm version` creates the bump commit AND the matching `v<version>` tag.
+   `--follow-tags` pushes both in one go.
+4. The tag push triggers `release.yml`, which publishes to npm.
+5. Cherry-pick or merge the version-bump commit back into `develop` so the
+   two branches don't diverge on `package.json`.
+
+If the release workflow rejects the tag (mismatch with `package.json`, or
+not on `main`), delete the bad tag (`git tag -d v… && git push --delete
+origin v…`) and retry.
 
 ---
 
 ## Branching
 
-- `develop` — default working branch.
-- Feature work on short-lived branches off `develop`, merged back via PR.
-- `main` is reserved for release-tagged commits (not in use yet — `develop`
-  is currently the only branch).
+- `develop` — default working branch. Feature work on short-lived branches
+  off `develop`, merged back via PR.
+- `main` — release-tagged commits only. Updated via PR from `develop`. Only
+  tags pointing at commits on `main` can be published by `release.yml`.

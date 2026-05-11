@@ -1,5 +1,8 @@
 # @monetisebg/circuit-breaker
 
+[![CI](https://github.com/MonetiseBG/circuit-breaker/actions/workflows/ci.yml/badge.svg)](https://github.com/MonetiseBG/circuit-breaker/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/@monetisebg/circuit-breaker.svg)](https://www.npmjs.com/package/@monetisebg/circuit-breaker)
+
 Minimal **circuit breaker** for AI agents. Stop an agent run after a
 configurable number of iterations or once it has burned more tokens than you
 allow — with one line of setup.
