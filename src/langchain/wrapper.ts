@@ -1,10 +1,10 @@
+import { CircuitBreakerError } from "../core/errors.js";
+import type { WrapperOptions } from "../core/types.js";
 import { CircuitBreakerCallback } from "./callback.js";
-import { CircuitBreakerError } from "./errors.js";
-import type { WrapperOptions } from "./types.js";
 
 /**
  * Minimal structural type for a LangChain Runnable. We only depend on the
- * `invoke` shape so we don't force a specific LangChain version.
+ * `invoke` shape so we don't bind to a specific LangChain version.
  */
 interface RunnableLike<TInput, TOutput> {
   invoke(input: TInput, config?: InvokeConfig): Promise<TOutput>;

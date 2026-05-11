@@ -1,29 +1,33 @@
 # @monetisebg/circuit-breaker
 
-Minimal **circuit breaker** for LangChain.js agents. Stop an agent run after a
+Minimal **circuit breaker** for AI agents. Stop an agent run after a
 configurable number of iterations or once it has burned more tokens than you
 allow — with one line of setup.
 
-- Zero-config wrapper around any LangChain `Runnable` (e.g. `AgentExecutor`).
+Shared decision core, per-framework wrappers. Today: **LangChain.js** and
+**OpenAI Agents SDK**. Bring your own framework by reusing the core.
+
+- Zero-config wrapper around any supported agent runtime.
 - Two limits, pick one or both: `maxIterations`, `maxTokens`.
 - Logs a clear reason on trip (`console.warn`) with iteration / token summary.
 - Throws a typed `CircuitBreakerError` (or routes through your `onTrip` handler).
-- Provider-agnostic token extraction (OpenAI / Anthropic / `usage_metadata`).
+- Optional peer dependencies — only install the framework you actually use.
 
 ## Install
 
 ```bash
 npm install @monetisebg/circuit-breaker
-# peer dependency:
-npm install @langchain/core
+# plus the framework(s) you use:
+npm install @langchain/core      # for the LangChain adapter
+npm install @openai/agents       # for the OpenAI Agents adapter
 ```
 
-## Quick start (wrapper)
+## LangChain.js
 
 ```ts
 import { ChatOpenAI } from "@langchain/openai";
 import { AgentExecutor, createOpenAIFunctionsAgent } from "langchain/agents";
-import { withCircuitBreaker } from "@monetisebg/circuit-breaker";
+import { withCircuitBreaker } from "@monetisebg/circuit-breaker/langchain";
 
 const agent = await createOpenAIFunctionsAgent({ llm, tools, prompt });
 const executor = new AgentExecutor({ agent, tools });
@@ -36,6 +40,35 @@ const safeExecutor = withCircuitBreaker(executor, {
 const result = await safeExecutor.invoke({ input: "..." });
 ```
 
+Counts iterations on each `handleLLMStart` / `handleChatModelStart` and reads
+token usage from `handleLLMEnd`. Provider-agnostic token extraction: OpenAI
+(`tokenUsage`), Anthropic (`usage`), and the newer `usage_metadata` shape.
+
+## OpenAI Agents SDK
+
+```ts
+import { Agent } from "@openai/agents";
+import { withCircuitBreaker } from "@monetisebg/circuit-breaker/openai-agents";
+
+const agent = new Agent({ name: "Assistant", instructions: "...", tools });
+
+const safeAgent = withCircuitBreaker(agent, {
+  maxIterations: 10,
+  maxTokens: 50_000,
+});
+
+const result = await safeAgent.run("Hello");
+```
+
+Counts iterations on each `agent_start` event (one per turn) and reads token
+usage live from `RunContext.usage` on each turn boundary. When a limit is hit
+the wrapper aborts the in-flight run via `AbortSignal`; any caller-supplied
+`signal` is chained, so external cancellation still works.
+
+> Streaming (`stream: true`) is not yet supported. Open an issue if you need it.
+
+## Trip output
+
 When a limit is reached the wrapper logs and throws:
 
 ```
@@ -47,7 +80,7 @@ When a limit is reached the wrapper logs and throws:
 Provide `onTrip` to suppress the throw and return your own fallback value:
 
 ```ts
-const safeExecutor = withCircuitBreaker(executor, {
+const safe = withCircuitBreaker(executor, {
   maxIterations: 10,
   maxTokens: 50_000,
   onTrip: (ctx) => ({
@@ -72,43 +105,45 @@ interface TripContext {
 }
 ```
 
-## Low-level: callback only
+## Low-level: core class
 
-If you'd rather not wrap, attach the callback handler yourself:
+If you'd rather drive the breaker yourself (e.g. for a framework we don't
+ship an adapter for), the core class is exported from the package root:
 
 ```ts
-import { CircuitBreakerCallback, CircuitBreakerError } from "@monetisebg/circuit-breaker";
+import { CircuitBreaker, CircuitBreakerError } from "@monetisebg/circuit-breaker";
 
-const breaker = new CircuitBreakerCallback({ maxIterations: 10, maxTokens: 50_000 });
+const breaker = new CircuitBreaker({ maxIterations: 10, maxTokens: 50_000 });
 
-try {
-  await executor.invoke({ input }, { callbacks: [breaker] });
-} catch (err) {
-  if (err instanceof CircuitBreakerError) {
-    console.error(err.reason, err.metrics, err.limits);
-  } else {
-    throw err;
-  }
-}
+// On every LLM call / agent turn:
+breaker.recordIteration();
+
+// When you see per-call usage:
+breaker.addTokens(inputTokens, outputTokens);
+
+// Or when your framework gives you a running total:
+breaker.setTokenSnapshot(totalIn, totalOut);
+
+// Read state any time:
+breaker.metrics; // { iterations, tokens: { input, output, total } }
 ```
 
-> Each `CircuitBreakerCallback` instance carries counters across one
-> invocation. Create a new instance per call, or call `breaker.reset()`.
-> The `withCircuitBreaker` wrapper does this for you.
+Each call will throw `CircuitBreakerError` when a limit is exceeded.
 
 ## Options
 
 | Option          | Type                | Description                                                                |
 |-----------------|---------------------|----------------------------------------------------------------------------|
-| `maxIterations` | `number`            | Max LLM calls allowed. Trips on the `n+1`th call.                          |
+| `maxIterations` | `number`            | Max LLM calls / agent turns allowed. Trips on the `n+1`th.                 |
 | `maxTokens`     | `number`            | Max total tokens (input + output) summed across calls.                     |
 | `silent`        | `boolean`           | Suppress the default `console.warn`. Default: `false`.                     |
 | `logger`        | `(msg, ctx) => void`| Replace the default logger. Ignored if `silent` is true.                   |
-| `onTrip`        | `(ctx) => R`        | *(wrapper only)* Suppress the throw and return `R` instead.                |
+| `onTrip`        | `(ctx) => R`        | *(wrappers only)* Suppress the throw and return `R` instead.               |
+| `runConfig`     | `Partial<RunConfig>`| *(@openai/agents only)* Forwarded to the internal `Runner`.                |
 
 At least one of `maxIterations` / `maxTokens` must be provided.
 
-## Token extraction
+## Token extraction (LangChain)
 
 The breaker reads token usage from `LLMResult.llmOutput` and falls back through:
 
@@ -120,6 +155,11 @@ If your provider exposes usage in a different field, token-based tripping will
 be a no-op for it (iteration-based tripping still works). Open an issue with
 the shape and we'll add it.
 
+## Contributing
+
+See [`AGENTS.md`](./AGENTS.md) for the project layout, build/test commands,
+and the recipe for adding a new framework adapter.
+
 ## License
 
-MIT
+MIT — © MonetiseBG

@@ -1,17 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LLMResult } from "@langchain/core/outputs";
 
-import { CircuitBreakerError, withCircuitBreaker } from "../src/index.js";
+import {
+  CircuitBreakerError,
+  withCircuitBreaker,
+} from "../../src/langchain/index.js";
 
 interface MinimalCallback {
   handleLLMStart?: (llm: unknown, prompts: string[], runId: string) => Promise<void>;
   handleLLMEnd?: (output: LLMResult, runId: string) => Promise<void>;
 }
 
-/**
- * Stand-in for a LangChain Runnable. Simulates `steps` LLM calls and forwards
- * to attached callbacks the same way AgentExecutor would.
- */
 function fakeRunnable(steps: number, tokensPerCall = 20) {
   return {
     async invoke(
@@ -43,7 +42,7 @@ function fakeRunnable(steps: number, tokensPerCall = 20) {
   };
 }
 
-describe("withCircuitBreaker", () => {
+describe("withCircuitBreaker (LangChain wrapper)", () => {
   it("passes through when limits are not exceeded", async () => {
     const safe = withCircuitBreaker(fakeRunnable(2), {
       maxIterations: 5,

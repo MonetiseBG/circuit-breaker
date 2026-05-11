@@ -1,9 +1,5 @@
-import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
-import type { LLMResult } from "@langchain/core/outputs";
-
 import { CircuitBreakerError } from "./errors.js";
 import { defaultLogger } from "./logger.js";
-import { extractTokens } from "./tokens.js";
 import type {
   CircuitBreakerOptions,
   Logger,
@@ -13,17 +9,17 @@ import type {
 } from "./types.js";
 
 /**
- * LangChain callback handler that counts LLM iterations and token usage and
- * trips (throws a CircuitBreakerError) once either configured limit is
- * exceeded. Attach it via `config.callbacks` on a Runnable invocation, or
- * use {@link withCircuitBreaker} for the convenience wrapper.
+ * Framework-agnostic circuit breaker.
  *
- * Each instance is single-use: counters carry across the whole invocation.
- * For a fresh invocation, create a new instance (or call {@link reset}).
+ * Holds the shared decision logic (iteration counter, token accumulator,
+ * limit checks, log + throw on trip). Provider adapters (LangChain callback,
+ * OpenAI Agents hook, …) translate their respective lifecycle events into
+ * calls on this class.
+ *
+ * One instance corresponds to one logical invocation. Adapters create a fresh
+ * breaker per call; call {@link reset} if you need to reuse one.
  */
-export class CircuitBreakerCallback extends BaseCallbackHandler {
-  override name = "CircuitBreakerCallback";
-
+export class CircuitBreaker {
   private readonly maxIterations?: number;
   private readonly maxTokens?: number;
   private readonly silent: boolean;
@@ -33,18 +29,24 @@ export class CircuitBreakerCallback extends BaseCallbackHandler {
   private inputTokens = 0;
   private outputTokens = 0;
   private tripped = false;
-  private readonly countedRuns = new Set<string>();
 
   constructor(opts: CircuitBreakerOptions = {}) {
-    super();
-    if (opts.maxIterations !== undefined && (!Number.isFinite(opts.maxIterations) || opts.maxIterations < 1)) {
+    if (
+      opts.maxIterations !== undefined &&
+      (!Number.isFinite(opts.maxIterations) || opts.maxIterations < 1)
+    ) {
       throw new TypeError("maxIterations must be a finite number >= 1");
     }
-    if (opts.maxTokens !== undefined && (!Number.isFinite(opts.maxTokens) || opts.maxTokens < 1)) {
+    if (
+      opts.maxTokens !== undefined &&
+      (!Number.isFinite(opts.maxTokens) || opts.maxTokens < 1)
+    ) {
       throw new TypeError("maxTokens must be a finite number >= 1");
     }
     if (opts.maxIterations === undefined && opts.maxTokens === undefined) {
-      throw new TypeError("CircuitBreakerCallback requires at least one of maxIterations or maxTokens");
+      throw new TypeError(
+        "CircuitBreaker requires at least one of maxIterations or maxTokens",
+      );
     }
     this.maxIterations = opts.maxIterations;
     this.maxTokens = opts.maxTokens;
@@ -63,57 +65,59 @@ export class CircuitBreakerCallback extends BaseCallbackHandler {
     };
   }
 
+  get isTripped(): boolean {
+    return this.tripped;
+  }
+
   reset(): void {
     this.iterations = 0;
     this.inputTokens = 0;
     this.outputTokens = 0;
     this.tripped = false;
-    this.countedRuns.clear();
   }
 
-  override async handleLLMStart(
-    _llm: unknown,
-    _prompts: string[],
-    runId: string,
-  ): Promise<void> {
-    this.countIteration(runId);
-  }
-
-  override async handleChatModelStart(
-    _llm: unknown,
-    _messages: unknown,
-    runId: string,
-  ): Promise<void> {
-    this.countIteration(runId);
-  }
-
-  override async handleLLMEnd(
-    output: LLMResult,
-    _runId?: string,
-    _parentRunId?: string,
-    _tags?: string[],
-  ): Promise<void> {
+  /**
+   * Record one logical iteration (one LLM call or one agent turn, depending
+   * on what the adapter chooses to count). Throws if this push goes over the
+   * iteration limit.
+   */
+  recordIteration(): void {
     if (this.tripped) return;
-    const { input, output: out } = extractTokens(output);
+    this.iterations += 1;
+    if (this.maxIterations !== undefined && this.iterations > this.maxIterations) {
+      this.trip("max_iterations");
+    }
+  }
+
+  /**
+   * Add delta token counts from a single LLM call. Use when the adapter
+   * observes per-call usage (e.g. LangChain's handleLLMEnd).
+   */
+  addTokens(input: number, output: number): void {
+    if (this.tripped) return;
     this.inputTokens += input;
-    this.outputTokens += out;
+    this.outputTokens += output;
+    this.checkTokenLimit();
+  }
+
+  /**
+   * Set absolute aggregate token counts. Use when the adapter sees a running
+   * total maintained by the agent framework (e.g. `RunContext.usage` in
+   * @openai/agents) instead of per-call deltas.
+   */
+  setTokenSnapshot(input: number, output: number): void {
+    if (this.tripped) return;
+    this.inputTokens = input;
+    this.outputTokens = output;
+    this.checkTokenLimit();
+  }
+
+  private checkTokenLimit(): void {
     if (
       this.maxTokens !== undefined &&
       this.inputTokens + this.outputTokens > this.maxTokens
     ) {
       this.trip("max_tokens");
-    }
-  }
-
-  private countIteration(runId: string): void {
-    if (this.tripped) return;
-    // Newer LangChain versions may emit both handleLLMStart and
-    // handleChatModelStart with the same runId — dedupe defensively.
-    if (this.countedRuns.has(runId)) return;
-    this.countedRuns.add(runId);
-    this.iterations += 1;
-    if (this.maxIterations !== undefined && this.iterations > this.maxIterations) {
-      this.trip("max_iterations");
     }
   }
 

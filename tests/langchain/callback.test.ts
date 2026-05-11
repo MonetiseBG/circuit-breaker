@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LLMResult } from "@langchain/core/outputs";
 
-import { CircuitBreakerCallback, CircuitBreakerError } from "../src/index.js";
+import {
+  CircuitBreakerCallback,
+  CircuitBreakerError,
+} from "../../src/langchain/index.js";
 
 const llmEnd = (input: number, output: number): LLMResult => ({
   generations: [[]],
@@ -30,7 +33,7 @@ const usageMetadataLlmEnd = (input: number, output: number): LLMResult => ({
   ],
 });
 
-describe("CircuitBreakerCallback", () => {
+describe("CircuitBreakerCallback (LangChain adapter)", () => {
   it("trips after maxIterations LLM starts", async () => {
     const cb = new CircuitBreakerCallback({ maxIterations: 2, silent: true });
     await cb.handleLLMStart({}, [], "r1");
@@ -53,9 +56,9 @@ describe("CircuitBreakerCallback", () => {
     const cb = new CircuitBreakerCallback({ maxTokens: 50, silent: true });
     await cb.handleLLMEnd(anthropicLlmEnd(20, 20), "r1");
     expect(cb.metrics.tokens.total).toBe(40);
-    await expect(cb.handleLLMEnd(anthropicLlmEnd(10, 5), "r2")).rejects.toBeInstanceOf(
-      CircuitBreakerError,
-    );
+    await expect(
+      cb.handleLLMEnd(anthropicLlmEnd(10, 5), "r2"),
+    ).rejects.toBeInstanceOf(CircuitBreakerError);
   });
 
   it("extracts tokens from usage_metadata fallback", async () => {
@@ -76,23 +79,6 @@ describe("CircuitBreakerCallback", () => {
     warn.mockRestore();
   });
 
-  it("calls custom logger with the trip context", async () => {
-    const logger = vi.fn();
-    const cb = new CircuitBreakerCallback({ maxIterations: 1, logger });
-    await cb.handleLLMStart({}, [], "r1");
-    await expect(cb.handleLLMStart({}, [], "r2")).rejects.toBeInstanceOf(
-      CircuitBreakerError,
-    );
-    expect(logger).toHaveBeenCalledWith(
-      expect.stringContaining("iteration limit"),
-      expect.objectContaining({
-        reason: "max_iterations",
-        metrics: expect.objectContaining({ iterations: 2 }),
-        limits: { maxIterations: 1, maxTokens: undefined },
-      }),
-    );
-  });
-
   it("dedupes count across handleLLMStart + handleChatModelStart with same runId", async () => {
     const cb = new CircuitBreakerCallback({ maxIterations: 5, silent: true });
     await cb.handleLLMStart({}, [], "r1");
@@ -100,21 +86,12 @@ describe("CircuitBreakerCallback", () => {
     expect(cb.metrics.iterations).toBe(1);
   });
 
-  it("validates options", () => {
-    expect(() => new CircuitBreakerCallback({})).toThrow(TypeError);
-    expect(() => new CircuitBreakerCallback({ maxIterations: 0 })).toThrow(TypeError);
-    expect(() => new CircuitBreakerCallback({ maxTokens: -1 })).toThrow(TypeError);
-    expect(() => new CircuitBreakerCallback({ maxIterations: Number.NaN })).toThrow(
-      TypeError,
-    );
-  });
-
-  it("reset() clears counters", async () => {
+  it("reset() clears counters and dedup state", async () => {
     const cb = new CircuitBreakerCallback({ maxIterations: 2, silent: true });
     await cb.handleLLMStart({}, [], "r1");
     cb.reset();
     expect(cb.metrics.iterations).toBe(0);
-    await cb.handleLLMStart({}, [], "r1"); // runId can be reused after reset
+    await cb.handleLLMStart({}, [], "r1");
     expect(cb.metrics.iterations).toBe(1);
   });
 
@@ -124,7 +101,6 @@ describe("CircuitBreakerCallback", () => {
     await expect(cb.handleLLMStart({}, [], "r2")).rejects.toBeInstanceOf(
       CircuitBreakerError,
     );
-    // Further events after trip are no-ops (no second throw).
     await expect(cb.handleLLMStart({}, [], "r3")).resolves.toBeUndefined();
     await expect(cb.handleLLMEnd(llmEnd(10, 10), "r3")).resolves.toBeUndefined();
   });

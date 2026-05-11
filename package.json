@@ -1,10 +1,12 @@
 {
   "name": "@monetisebg/circuit-breaker",
   "version": "0.1.0",
-  "description": "Circuit breaker for LangChain agents — stop agent execution after configurable iteration or token limits.",
+  "description": "Circuit breaker for AI agents — stop agent execution after configurable iteration or token limits. Adapters for LangChain and OpenAI Agents SDK.",
   "keywords": [
     "langchain",
     "langchainjs",
+    "openai",
+    "openai-agents",
     "agent",
     "circuit-breaker",
     "ai",
@@ -31,12 +33,23 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./langchain": {
+      "types": "./dist/langchain.d.ts",
+      "import": "./dist/langchain.js",
+      "require": "./dist/langchain.cjs"
+    },
+    "./openai-agents": {
+      "types": "./dist/openai-agents.d.ts",
+      "import": "./dist/openai-agents.js",
+      "require": "./dist/openai-agents.cjs"
     }
   },
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "AGENTS.md"
   ],
   "scripts": {
     "build": "tsup",
@@ -46,10 +59,20 @@
     "prepublishOnly": "npm run typecheck && npm run test && npm run build"
   },
   "peerDependencies": {
-    "@langchain/core": ">=0.3.0 <1.0.0"
+    "@langchain/core": ">=0.3.0 <1.0.0",
+    "@openai/agents": ">=0.11.0 <1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@langchain/core": {
+      "optional": true
+    },
+    "@openai/agents": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@langchain/core": "^0.3.0",
+    "@openai/agents": "^0.11.0",
     "@types/node": "^22.0.0",
     "tsup": "^8.3.0",
     "typescript": "^5.6.0",
