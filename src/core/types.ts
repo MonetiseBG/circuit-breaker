@@ -12,7 +12,16 @@ export interface Metrics {
 }
 
 export interface Limits {
+  /**
+   * Maximum number of iterations (LLM calls / agent turns) allowed before the
+   * breaker trips. Must be a positive integer. The breaker fires on the
+   * `(maxIterations + 1)`-th iteration, before that call is made.
+   */
   maxIterations?: number;
+  /**
+   * Maximum total tokens (input + output, summed across all calls) allowed
+   * before the breaker trips. Must be a positive integer.
+   */
   maxTokens?: number;
 }
 

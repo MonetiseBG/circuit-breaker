@@ -31,17 +31,15 @@ export class CircuitBreaker {
   private tripped = false;
 
   constructor(opts: CircuitBreakerOptions = {}) {
-    if (
-      opts.maxIterations !== undefined &&
-      (!Number.isFinite(opts.maxIterations) || opts.maxIterations < 1)
-    ) {
-      throw new TypeError("maxIterations must be a finite number >= 1");
+    if (opts.maxIterations !== undefined && !isPositiveInteger(opts.maxIterations)) {
+      throw new TypeError(
+        `maxIterations must be a positive integer (received ${describe(opts.maxIterations)})`,
+      );
     }
-    if (
-      opts.maxTokens !== undefined &&
-      (!Number.isFinite(opts.maxTokens) || opts.maxTokens < 1)
-    ) {
-      throw new TypeError("maxTokens must be a finite number >= 1");
+    if (opts.maxTokens !== undefined && !isPositiveInteger(opts.maxTokens)) {
+      throw new TypeError(
+        `maxTokens must be a positive integer (received ${describe(opts.maxTokens)})`,
+      );
     }
     if (opts.maxIterations === undefined && opts.maxTokens === undefined) {
       throw new TypeError(
@@ -140,4 +138,17 @@ export class CircuitBreaker {
         : `Agent stopped: reached token limit (${metrics.tokens.total}/${this.maxTokens} total tokens; in=${metrics.tokens.input}, out=${metrics.tokens.output}; iterations: ${metrics.iterations}${this.maxIterations !== undefined ? `/${this.maxIterations}` : ""}).`;
     return { reason, metrics, limits, message };
   }
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1;
+}
+
+function describe(value: unknown): string {
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) return "NaN";
+    if (!Number.isFinite(value)) return value > 0 ? "Infinity" : "-Infinity";
+    return String(value);
+  }
+  return `${typeof value}: ${String(value)}`;
 }

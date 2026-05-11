@@ -137,14 +137,17 @@ Each call will throw `CircuitBreakerError` when a limit is exceeded.
 
 | Option          | Type                | Description                                                                |
 |-----------------|---------------------|----------------------------------------------------------------------------|
-| `maxIterations` | `number`            | Max LLM calls / agent turns allowed. Trips on the `n+1`th.                 |
-| `maxTokens`     | `number`            | Max total tokens (input + output) summed across calls.                     |
+| `maxIterations` | `integer ≥ 1`       | Max LLM calls / agent turns allowed. Trips on the `n+1`th.                 |
+| `maxTokens`     | `integer ≥ 1`       | Max total tokens (input + output) summed across calls.                     |
 | `silent`        | `boolean`           | Suppress the default `console.warn`. Default: `false`.                     |
 | `logger`        | `(msg, ctx) => void`| Replace the default logger. Ignored if `silent` is true.                   |
 | `onTrip`        | `(ctx) => R`        | *(wrappers only)* Suppress the throw and return `R` instead.               |
 | `runConfig`     | `Partial<RunConfig>`| *(@openai/agents only)* Forwarded to the internal `Runner`.                |
 
-At least one of `maxIterations` / `maxTokens` must be provided.
+`maxIterations` and `maxTokens` are typed as `number` in TypeScript (there is
+no native integer type) but validated as positive integers at construction —
+passing `1.5`, `0`, `NaN`, or `Infinity` throws a `TypeError`. At least one
+of the two must be provided.
 
 ## Token extraction (LangChain)
 

@@ -67,6 +67,21 @@ describe("CircuitBreaker (core)", () => {
     expect(() => new CircuitBreaker({ maxIterations: Number.NaN })).toThrow(
       TypeError,
     );
+    expect(() => new CircuitBreaker({ maxIterations: Infinity })).toThrow(
+      TypeError,
+    );
+  });
+
+  it("rejects non-integer limits (must be positive integers)", () => {
+    expect(() => new CircuitBreaker({ maxIterations: 1.5 })).toThrow(
+      /maxIterations must be a positive integer/,
+    );
+    expect(() => new CircuitBreaker({ maxTokens: 100.1 })).toThrow(
+      /maxTokens must be a positive integer/,
+    );
+    expect(() => new CircuitBreaker({ maxTokens: 0.5 })).toThrow(TypeError);
+    // Sanity: a legal integer still works.
+    expect(() => new CircuitBreaker({ maxIterations: 1, maxTokens: 1 })).not.toThrow();
   });
 
   it("reset() clears counters and untrips", () => {
