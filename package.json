@@ -1,0 +1,61 @@
+{
+  "name": "@monetisebg/circuit-breaker",
+  "version": "0.1.0",
+  "description": "Circuit breaker for LangChain agents — stop agent execution after configurable iteration or token limits.",
+  "keywords": [
+    "langchain",
+    "langchainjs",
+    "agent",
+    "circuit-breaker",
+    "ai",
+    "llm",
+    "guardrail",
+    "token-limit"
+  ],
+  "license": "MIT",
+  "author": "MonetiseBG",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MonetiseBG/circuit-breaker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MonetiseBG/circuit-breaker/issues"
+  },
+  "homepage": "https://github.com/MonetiseBG/circuit-breaker#readme",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "peerDependencies": {
+    "@langchain/core": ">=0.3.0 <1.0.0"
+  },
+  "devDependencies": {
+    "@langchain/core": "^0.3.0",
+    "@types/node": "^22.0.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

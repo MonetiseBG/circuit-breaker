@@ -1,0 +1,13 @@
+node_modules
+dist
+coverage
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# IDE / tooling
+.idea
+.vscode
+.claude/settings.local.json

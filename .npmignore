@@ -1,0 +1,10 @@
+src
+tests
+node_modules
+coverage
+tsconfig.json
+tsup.config.ts
+vitest.config.ts
+.gitignore
+.editorconfig
+*.test.ts
