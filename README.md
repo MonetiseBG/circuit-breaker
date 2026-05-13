@@ -168,4 +168,4 @@ and the recipe for adding a new framework adapter.
 
 ## License
 
-MIT — © MonetiseBG
+Apache-2.0 — © 2026 MonetiseBG

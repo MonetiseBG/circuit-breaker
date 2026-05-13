@@ -14,7 +14,7 @@
     "guardrail",
     "token-limit"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "MonetiseBG",
   "repository": {
     "type": "git",
