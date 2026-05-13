@@ -3,13 +3,20 @@ export type { OpenAIAgentsWrapperOptions, WrappedAgent } from "./wrapper.js";
 // Re-export core symbols that users commonly need next to the adapter.
 export { CircuitBreakerError } from "../core/errors.js";
 export type {
+  BudgetGuardConfig,
+  CircuitBreakerEvent,
   CircuitBreakerOptions,
-  Limits,
+  CommonConfig,
+  EventListener,
   Logger,
+  LoopKillerConfig,
   Metrics,
+  Mode,
+  ModeConfig,
   OnTrip,
+  ResolvedLimits,
+  StopReason,
   TokenMetrics,
   TripContext,
-  TripReason,
   WrapperOptions,
 } from "../core/types.js";

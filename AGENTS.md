@@ -10,9 +10,18 @@ Guide for AI coding agents (and humans) working in this repository.
 ## What this package is
 
 `@monetisebg/circuit-breaker` is an open-source npm package: a circuit breaker
-for AI agents that stops execution after configurable **iteration** or
-**token** limits. Decision logic lives in a framework-agnostic core; each
-agent framework gets its own thin adapter exposed as a subpath import.
+for AI agents that stops a run before it burns tokens or spins in a loop.
+Behaviour is selected by **mode**:
+
+- `budget-guard` (default) — caps input and output tokens independently
+  (`maxInputToken` / `maxOutputToken`, 10k each by default).
+- `loop-killer` — hashes each step's state to detect repetition and trips
+  when the same state recurs more than `maxRetries` times (default 3). With
+  `detectRepeatedState: false` it falls back to a raw iteration cap.
+
+Decision logic lives in a framework-agnostic core; each agent framework gets
+its own thin adapter exposed as a subpath import. The breaker emits
+`CircuitBreakerEvent`s (`retry`, `stop`) for visibility into what it's doing.
 
 Current adapters:
 
@@ -97,12 +106,20 @@ before publishing.
 
 ### Style choices baked into the codebase
 
-- Iteration count is incremented at *call start* (LLM call / agent turn) so
-  the breaker can refuse the `n+1`th call before it happens.
+- Iterations are counted at *call start* (LLM call / agent turn). In
+  `loop-killer` mode the adapter also passes a `stateKey` derived from the
+  latest message / turn input; the core hashes it and trips on repetition.
 - Token tripping is checked *after each call completes* (the call that
-  pushed us over still counts).
-- Both `addTokens(delta, delta)` and `setTokenSnapshot(absIn, absOut)` exist
-  on the core — adapters pick whichever matches the framework's data model.
+  pushed us over still counts). Tokens are tracked in every mode but only
+  trip in `budget-guard`.
+- Both `addTokens(deltaIn, deltaOut)` and `setTokenSnapshot(absIn, absOut)`
+  exist on the core — adapters pick whichever matches the framework's data
+  model (LangChain uses deltas via `handleLLMEnd`; @openai/agents uses
+  snapshots via `RunContext.usage`).
+- `saved` in `TripContext` / `stop` events is signed `limit - usage`:
+  positive means headroom, negative means the over-the-limit call counted.
+- Listeners (`onEvent`) errors are swallowed in the core — a buggy listener
+  must never break the agent run.
 
 ---
 
@@ -114,7 +131,9 @@ The whole point of the core/adapter split. Recipe:
 2. **Import the core**: `CircuitBreaker`, `CircuitBreakerError`, and the
    relevant types from `../core/index.js`. Do not duplicate decision logic.
 3. **Map framework events onto core primitives**:
-   - On each new LLM call / agent step → `breaker.recordIteration()`.
+   - On each new LLM call / agent step → `breaker.recordIteration(stateKey?)`.
+     Pass a `stateKey` (string summary of the step's input — typically the
+     latest message / turn item) so `loop-killer` mode can detect repeats.
    - On per-call usage → `breaker.addTokens(input, output)`.
    - On a running total exposed by the framework →
      `breaker.setTokenSnapshot(totalIn, totalOut)`.
@@ -133,7 +152,9 @@ The whole point of the core/adapter split. Recipe:
 8. **Update `README.md`** with a usage example.
 
 If a framework only gives you post-hoc usage info (no mid-run hooks), token
-limits won't be enforceable mid-run for it — document that explicitly.
+limits won't be enforceable mid-run for it — document that explicitly. Same
+caveat applies to `loop-killer` if you can't extract a per-step state key
+from the framework.
 
 ---
 

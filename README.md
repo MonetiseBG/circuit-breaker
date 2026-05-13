@@ -3,26 +3,123 @@
 [![CI](https://github.com/MonetiseBG/circuit-breaker/actions/workflows/ci.yml/badge.svg)](https://github.com/MonetiseBG/circuit-breaker/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/@monetisebg/circuit-breaker.svg)](https://www.npmjs.com/package/@monetisebg/circuit-breaker)
 
-Minimal **circuit breaker** for AI agents. Stop an agent run after a
-configurable number of iterations or once it has burned more tokens than you
-allow — with one line of setup.
+> One wrapper between you and runaway execution.
 
-Shared decision core, per-framework wrappers. Today: **LangChain.js** and
-**OpenAI Agents SDK**. Bring your own framework by reusing the core.
+Minimal **circuit breaker** for AI agents. Wrap any supported agent and pick a
+mode — the breaker stops the run before it burns tokens or spins in a loop.
 
-- Zero-config wrapper around any supported agent runtime.
-- Two limits, pick one or both: `maxIterations`, `maxTokens`.
-- Logs a clear reason on trip (`console.warn`) with iteration / token summary.
-- Throws a typed `CircuitBreakerError` (or routes through your `onTrip` handler).
+- Zero-config: defaults work out of the box.
+- Two modes, pick one: **`budget-guard`** (token caps) and **`loop-killer`**
+  (state-repeat detection).
+- Visible: emits `CircuitBreakerEvent`s as the run progresses.
+- Typed: throws a `CircuitBreakerError`, or routes through your `onTrip` handler.
 - Optional peer dependencies — only install the framework you actually use.
+
+Shipped adapters: **LangChain.js**, **OpenAI Agents SDK**. The core is
+framework-agnostic; rolling your own adapter is a few lines.
 
 ## Install
 
 ```bash
 npm install @monetisebg/circuit-breaker
-# plus the framework(s) you use:
+# plus the framework you use:
 npm install @langchain/core      # for the LangChain adapter
 npm install @openai/agents       # for the OpenAI Agents adapter
+```
+
+## Quick start (`budget-guard`, the default)
+
+```ts
+import { withCircuitBreaker } from "@monetisebg/circuit-breaker/openai-agents";
+
+const safeAgent = withCircuitBreaker(agent); // defaults: 10k input + 10k output
+
+await safeAgent.run("Analyze this dataset");
+```
+
+`budget-guard` caps input and output tokens **independently**. Default limits:
+`maxInputToken = 10_000`, `maxOutputToken = 10_000`. The breaker trips the
+moment either bucket is exceeded.
+
+```ts
+withCircuitBreaker(agent, {
+  mode: "budget-guard",     // optional — this is the default
+  maxInputToken: 50_000,
+  maxOutputToken: 20_000,
+});
+```
+
+## `loop-killer` mode
+
+```ts
+withCircuitBreaker(agent, {
+  mode: "loop-killer",
+  maxRetries: 3,            // default
+  detectRepeatedState: true,// default — hashes each step's state
+});
+```
+
+With `detectRepeatedState: true` (default), the breaker hashes each step's
+state (the latest message / turn input) and trips when any single state
+recurs more than `maxRetries` times. Set `detectRepeatedState: false` to fall
+back to a plain iteration cap.
+
+## Visibility — `onEvent`
+
+The breaker emits events you can log, surface in your UI, or pipe to your
+observability stack.
+
+```ts
+withCircuitBreaker(agent, {
+  mode: "loop-killer",
+  maxRetries: 2,
+  onEvent(event) {
+    // event: CircuitBreakerEvent
+    console.log(event);
+  },
+});
+```
+
+`CircuitBreakerEvent` shapes:
+
+| Event                                               | When                          | Modes        |
+| --------------------------------------------------- | ----------------------------- | ------------ |
+| `{ type: "retry"; retries: number }`                | The same state recurred       | loop-killer  |
+| `{ type: "stop"; reason: StopReason; saved: number }` | The breaker tripped          | both         |
+
+`saved` is signed `limit - usage`: positive means headroom that won't be
+spent, negative means the call that pushed us over the limit still counted.
+
+`StopReason` is one of `"max_input_tokens" | "max_output_tokens" |
+"max_retries" | "repeated_state"`.
+
+## Graceful handling — `onTrip`
+
+Provide `onTrip` to suppress the throw and return a fallback value:
+
+```ts
+const safe = withCircuitBreaker(agent, {
+  maxInputToken: 50_000,
+  maxOutputToken: 20_000,
+  onTrip: (ctx) => ({
+    output: "Sorry, I had to stop early.",
+    reason: ctx.reason,
+    metrics: ctx.metrics,
+  }),
+});
+```
+
+`onTrip` receives a `TripContext`:
+
+```ts
+interface TripContext {
+  reason: StopReason;
+  mode: Mode;                              // "budget-guard" | "loop-killer"
+  metrics: { iterations: number; retries: number; tokens: {...} };
+  limits: ResolvedLimits;                  // the limits actually in force
+  saved: number;
+  message: string;
+}
 ```
 
 ## LangChain.js
@@ -36,16 +133,16 @@ const agent = await createOpenAIFunctionsAgent({ llm, tools, prompt });
 const executor = new AgentExecutor({ agent, tools });
 
 const safeExecutor = withCircuitBreaker(executor, {
-  maxIterations: 10,    // stop after 10 LLM calls
-  maxTokens: 50_000,    // ...or 50k total tokens, whichever first
+  maxInputToken: 50_000,
+  maxOutputToken: 20_000,
 });
 
-const result = await safeExecutor.invoke({ input: "..." });
+await safeExecutor.invoke({ input: "..." });
 ```
 
-Counts iterations on each `handleLLMStart` / `handleChatModelStart` and reads
-token usage from `handleLLMEnd`. Provider-agnostic token extraction: OpenAI
-(`tokenUsage`), Anthropic (`usage`), and the newer `usage_metadata` shape.
+Iterations are counted on `handleLLMStart` / `handleChatModelStart`. Token
+usage is read from `handleLLMEnd` with provider-agnostic extraction
+(OpenAI `tokenUsage`, Anthropic `usage`, newer `usage_metadata`).
 
 ## OpenAI Agents SDK
 
@@ -56,16 +153,17 @@ import { withCircuitBreaker } from "@monetisebg/circuit-breaker/openai-agents";
 const agent = new Agent({ name: "Assistant", instructions: "...", tools });
 
 const safeAgent = withCircuitBreaker(agent, {
-  maxIterations: 10,
-  maxTokens: 50_000,
+  mode: "loop-killer",
+  maxRetries: 3,
 });
 
-const result = await safeAgent.run("Hello");
+await safeAgent.run("Hello");
 ```
 
-Counts iterations on each `agent_start` event (one per turn) and reads token
-usage live from `RunContext.usage` on each turn boundary. When a limit is hit
-the wrapper aborts the in-flight run via `AbortSignal`; any caller-supplied
+Iterations are counted on each `agent_start` event (one per turn); the most
+recent `turnInput` item is hashed for loop detection. Tokens are read live
+from `RunContext.usage` on each turn boundary. When a limit is hit the
+wrapper aborts the in-flight run via `AbortSignal`; any caller-supplied
 `signal` is chained, so external cancellation still works.
 
 > Streaming (`stream: true`) is not yet supported. Open an issue if you need it.
@@ -75,38 +173,11 @@ the wrapper aborts the in-flight run via `AbortSignal`; any caller-supplied
 When a limit is reached the wrapper logs and throws:
 
 ```
-[circuit-breaker] Agent stopped: reached iteration limit (11/10 iterations; tokens used: 8421).
+[circuit-breaker] Agent stopped: input token budget exceeded (10_120/10_000; iterations: 8).
 ```
 
-## Graceful handling (`onTrip`)
-
-Provide `onTrip` to suppress the throw and return your own fallback value:
-
-```ts
-const safe = withCircuitBreaker(executor, {
-  maxIterations: 10,
-  maxTokens: 50_000,
-  onTrip: (ctx) => ({
-    output: "Sorry, I had to stop early.",
-    stoppedReason: ctx.reason,    // "max_iterations" | "max_tokens"
-    usage: ctx.metrics.tokens,
-  }),
-});
-```
-
-`onTrip` receives:
-
-```ts
-interface TripContext {
-  reason: "max_iterations" | "max_tokens";
-  metrics: {
-    iterations: number;
-    tokens: { input: number; output: number; total: number };
-  };
-  limits: { maxIterations?: number; maxTokens?: number };
-  message: string;
-}
-```
+Pass `silent: true` to suppress the log, or `logger: (msg, ctx) => …` to send
+it elsewhere.
 
 ## Low-level: core class
 
@@ -116,38 +187,44 @@ ship an adapter for), the core class is exported from the package root:
 ```ts
 import { CircuitBreaker, CircuitBreakerError } from "@monetisebg/circuit-breaker";
 
-const breaker = new CircuitBreaker({ maxIterations: 10, maxTokens: 50_000 });
+const breaker = new CircuitBreaker({
+  mode: "loop-killer",
+  maxRetries: 3,
+  onEvent: console.log,
+});
 
 // On every LLM call / agent turn:
-breaker.recordIteration();
+breaker.recordIteration(stateKey);    // stateKey is optional; used for hashing
 
-// When you see per-call usage:
+// When you see per-call usage (budget-guard):
 breaker.addTokens(inputTokens, outputTokens);
 
 // Or when your framework gives you a running total:
 breaker.setTokenSnapshot(totalIn, totalOut);
 
 // Read state any time:
-breaker.metrics; // { iterations, tokens: { input, output, total } }
+breaker.metrics;  // { iterations, retries, tokens: { input, output, total } }
 ```
 
-Each call will throw `CircuitBreakerError` when a limit is exceeded.
+Each call may throw `CircuitBreakerError` when a limit is exceeded.
 
-## Options
+## Options reference
 
-| Option          | Type                | Description                                                                |
-|-----------------|---------------------|----------------------------------------------------------------------------|
-| `maxIterations` | `integer ≥ 1`       | Max LLM calls / agent turns allowed. Trips on the `n+1`th.                 |
-| `maxTokens`     | `integer ≥ 1`       | Max total tokens (input + output) summed across calls.                     |
-| `silent`        | `boolean`           | Suppress the default `console.warn`. Default: `false`.                     |
-| `logger`        | `(msg, ctx) => void`| Replace the default logger. Ignored if `silent` is true.                   |
-| `onTrip`        | `(ctx) => R`        | *(wrappers only)* Suppress the throw and return `R` instead.               |
-| `runConfig`     | `Partial<RunConfig>`| *(@openai/agents only)* Forwarded to the internal `Runner`.                |
+| Field                  | Mode         | Type        | Default    | Description                                                                  |
+| ---------------------- | ------------ | ----------- | ---------- | ---------------------------------------------------------------------------- |
+| `mode`                 | both         | `Mode`      | `"budget-guard"` | `"budget-guard"` or `"loop-killer"`.                                  |
+| `maxInputToken`        | budget-guard | `int ≥ 1`   | `10_000`   | Max aggregate input tokens before trip.                                      |
+| `maxOutputToken`       | budget-guard | `int ≥ 1`   | `10_000`   | Max aggregate output tokens before trip.                                     |
+| `maxRetries`           | loop-killer  | `int ≥ 1`   | `3`        | Max times the same state may recur (or, with detection off, raw iterations). |
+| `detectRepeatedState`  | loop-killer  | `boolean`   | `true`     | Hash each step's state for loop detection.                                   |
+| `silent`               | both         | `boolean`   | `false`    | Suppress the default trip log.                                               |
+| `logger`               | both         | `Logger`    | `console.warn` | Custom trip logger. Ignored when `silent: true`.                         |
+| `onEvent`              | both         | `EventListener` | —      | Receives `CircuitBreakerEvent` updates.                                      |
+| `onTrip`               | wrappers     | `OnTrip<R>` | —          | Suppress the throw and use the callback's return value instead.              |
+| `runConfig`            | OpenAI Agents | `Partial<RunConfig>` | — | Forwarded to the internal `Runner`.                                          |
 
-`maxIterations` and `maxTokens` are typed as `number` in TypeScript (there is
-no native integer type) but validated as positive integers at construction —
-passing `1.5`, `0`, `NaN`, or `Infinity` throws a `TypeError`. At least one
-of the two must be provided.
+All numeric options are validated at construction; passing `0`, a negative,
+`NaN`, `Infinity`, or a non-integer throws a `TypeError`.
 
 ## Token extraction (LangChain)
 
@@ -157,9 +234,9 @@ The breaker reads token usage from `LLMResult.llmOutput` and falls back through:
 2. `llmOutput.usage` — Anthropic / snake_case (`input_tokens` / `output_tokens`).
 3. `generations[0][i].message.usage_metadata` — newer LangChain message shape.
 
-If your provider exposes usage in a different field, token-based tripping will
-be a no-op for it (iteration-based tripping still works). Open an issue with
-the shape and we'll add it.
+If your provider exposes usage in a different field, `budget-guard` won't fire
+on tokens for it (`loop-killer` still works). Open an issue with the shape and
+we'll add it.
 
 ## Contributing
 

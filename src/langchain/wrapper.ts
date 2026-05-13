@@ -1,5 +1,5 @@
 import { CircuitBreakerError } from "../core/errors.js";
-import type { WrapperOptions } from "../core/types.js";
+import type { CircuitBreakerOptions, WrapperOptions } from "../core/types.js";
 import { CircuitBreakerCallback } from "./callback.js";
 
 /**
@@ -20,26 +20,22 @@ export interface WrappedRunnable<TInput, TOutput> {
 }
 
 /**
- * Wrap a LangChain Runnable (e.g. AgentExecutor) so its invocations are
- * cut off once the configured iteration or token limit is exceeded.
+ * Wrap a LangChain Runnable (e.g. `AgentExecutor`) so its invocations are cut
+ * off when the configured circuit-breaker mode trips.
  *
- * Without `onTrip` the wrapper re-throws CircuitBreakerError. With `onTrip`
- * the error is suppressed and the callback's return value becomes the
- * wrapper's result; its return type is unioned into the wrapper output.
+ * Without an `options` argument the wrapper applies the `budget-guard` defaults
+ * (10k input + 10k output tokens). Without `onTrip` the wrapper re-throws
+ * `CircuitBreakerError`; with `onTrip` the error is suppressed and the
+ * callback's return value becomes the wrapper's result.
  */
-export function withCircuitBreaker<TInput, TOutput>(
+export function withCircuitBreaker<TInput, TOutput, TFallback = never>(
   runnable: RunnableLike<TInput, TOutput>,
-  options: WrapperOptions<never>,
-): WrappedRunnable<TInput, TOutput>;
-export function withCircuitBreaker<TInput, TOutput, TFallback>(
-  runnable: RunnableLike<TInput, TOutput>,
-  options: WrapperOptions<TFallback>,
-): WrappedRunnable<TInput, TOutput | TFallback>;
-export function withCircuitBreaker<TInput, TOutput, TFallback>(
-  runnable: RunnableLike<TInput, TOutput>,
-  options: WrapperOptions<TFallback>,
+  options?: WrapperOptions<TFallback>,
 ): WrappedRunnable<TInput, TOutput | TFallback> {
-  const { onTrip, ...callbackOpts } = options;
+  const callbackOpts: CircuitBreakerOptions = options
+    ? stripOnTrip(options)
+    : {};
+  const onTrip = options?.onTrip;
 
   return {
     async invoke(input, config) {
@@ -56,4 +52,11 @@ export function withCircuitBreaker<TInput, TOutput, TFallback>(
       }
     },
   };
+}
+
+function stripOnTrip<R>(opts: WrapperOptions<R>): CircuitBreakerOptions {
+  const { onTrip: _onTrip, ...rest } = opts as WrapperOptions<R> & {
+    onTrip?: unknown;
+  };
+  return rest as CircuitBreakerOptions;
 }

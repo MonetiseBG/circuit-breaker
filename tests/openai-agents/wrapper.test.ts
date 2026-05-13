@@ -12,6 +12,7 @@ vi.mock("@openai/agents", async () => {
         __turns?: number;
         __tokensPerTurn?: number;
         __throw?: Error;
+        __turnInputFor?: (i: number) => unknown[] | undefined;
       },
       _input: unknown,
       options?: { signal?: AbortSignal },
@@ -39,7 +40,8 @@ vi.mock("@openai/agents", async () => {
 
       for (let i = 0; i < turns; i++) {
         ensureNotAborted();
-        this.emit("agent_start", context, agent, []);
+        const turnInput = agent.__turnInputFor?.(i) ?? [];
+        this.emit("agent_start", context, agent, turnInput);
         ensureNotAborted();
 
         usage.inputTokens += tokensPerTurn / 2;
@@ -62,104 +64,131 @@ import {
   withCircuitBreaker,
 } from "../../src/openai-agents/index.js";
 
-// Tests use a structural stand-in for an Agent; the wrapper never inspects it
-// beyond forwarding to Runner.run().
-const makeAgent = (turns = 5, tokensPerTurn = 100, throwErr?: Error) =>
-  ({
-    __turns: turns,
-    __tokensPerTurn: tokensPerTurn,
-    __throw: throwErr,
-  }) as unknown as Parameters<typeof withCircuitBreaker>[0];
+interface FakeAgent {
+  __turns?: number;
+  __tokensPerTurn?: number;
+  __throw?: Error;
+  __turnInputFor?: (i: number) => unknown[] | undefined;
+}
+
+const makeAgent = (cfg: FakeAgent = {}) =>
+  cfg as unknown as Parameters<typeof withCircuitBreaker>[0];
 
 describe("withCircuitBreaker (@openai/agents wrapper)", () => {
-  it("passes through when limits are not exceeded", async () => {
-    const safe = withCircuitBreaker(makeAgent(2, 100), {
-      maxIterations: 5,
-      maxTokens: 10_000,
-      silent: true,
+  describe("budget-guard (default mode)", () => {
+    it("works with no options (10k/10k defaults)", async () => {
+      const safe = withCircuitBreaker(makeAgent({ __turns: 2, __tokensPerTurn: 100 }));
+      await expect(safe.run("hello")).resolves.toEqual({ finalOutput: "done" });
     });
-    await expect(safe.run("hello")).resolves.toEqual({ finalOutput: "done" });
-  });
 
-  it("trips on iteration limit and re-throws CircuitBreakerError", async () => {
-    const safe = withCircuitBreaker(makeAgent(10, 50), {
-      maxIterations: 2,
-      silent: true,
+    it("trips on max_input_tokens", async () => {
+      const safe = withCircuitBreaker(
+        makeAgent({ __turns: 10, __tokensPerTurn: 100 }),
+        { maxInputToken: 200, maxOutputToken: 1_000_000, silent: true },
+      );
+      await expect(safe.run("hello")).rejects.toMatchObject({
+        name: "CircuitBreakerError",
+        reason: "max_input_tokens",
+      });
     });
-    await expect(safe.run("hello")).rejects.toMatchObject({
-      name: "CircuitBreakerError",
-      reason: "max_iterations",
-    });
-  });
 
-  it("trips on token limit and re-throws CircuitBreakerError", async () => {
-    const safe = withCircuitBreaker(makeAgent(10, 100), {
-      maxTokens: 150,
-      silent: true,
-    });
-    await expect(safe.run("hello")).rejects.toMatchObject({
-      name: "CircuitBreakerError",
-      reason: "max_tokens",
+    it("trips on max_output_tokens independently", async () => {
+      const safe = withCircuitBreaker(
+        makeAgent({ __turns: 10, __tokensPerTurn: 100 }),
+        { maxInputToken: 1_000_000, maxOutputToken: 200, silent: true },
+      );
+      await expect(safe.run("hello")).rejects.toMatchObject({
+        reason: "max_output_tokens",
+      });
     });
   });
 
-  it("calls onTrip and returns its value when limit is hit", async () => {
-    const onTrip = vi.fn().mockReturnValue({ finalOutput: "fallback" });
-    const safe = withCircuitBreaker(makeAgent(10), {
-      maxIterations: 1,
-      silent: true,
-      onTrip,
+  describe("loop-killer mode", () => {
+    it("trips on repeated turnInput", async () => {
+      const safe = withCircuitBreaker(
+        makeAgent({
+          __turns: 10,
+          __tokensPerTurn: 0,
+          __turnInputFor: () => [{ role: "user", content: "same input" }],
+        }),
+        { mode: "loop-killer", maxRetries: 2, silent: true },
+      );
+      await expect(safe.run("hello")).rejects.toMatchObject({
+        reason: "repeated_state",
+      });
     });
-    const result = await safe.run("hello");
-    expect(result).toEqual({ finalOutput: "fallback" });
-    expect(onTrip).toHaveBeenCalledWith(
-      expect.objectContaining({
-        reason: "max_iterations",
-        metrics: expect.objectContaining({ iterations: 2 }),
-      }),
-    );
+
+    it("falls back to iteration cap when detectRepeatedState=false", async () => {
+      const safe = withCircuitBreaker(
+        makeAgent({ __turns: 10, __tokensPerTurn: 0 }),
+        {
+          mode: "loop-killer",
+          maxRetries: 2,
+          detectRepeatedState: false,
+          silent: true,
+        },
+      );
+      await expect(safe.run("hello")).rejects.toMatchObject({
+        reason: "max_retries",
+      });
+    });
   });
 
-  it("propagates non-CircuitBreaker errors unchanged", async () => {
-    const safe = withCircuitBreaker(makeAgent(0, 0, new Error("upstream boom")), {
-      maxIterations: 10,
-      silent: true,
-      onTrip: () => "should not be called" as never,
+  describe("trip handling", () => {
+    it("calls onTrip and returns its value when limit is hit", async () => {
+      const onTrip = vi.fn().mockReturnValue({ finalOutput: "fallback" });
+      const safe = withCircuitBreaker(
+        makeAgent({ __turns: 10, __tokensPerTurn: 100 }),
+        { maxInputToken: 50, maxOutputToken: 1_000_000, silent: true, onTrip },
+      );
+      const result = await safe.run("hello");
+      expect(result).toEqual({ finalOutput: "fallback" });
+      expect(onTrip).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: "max_input_tokens" }),
+      );
     });
-    await expect(safe.run("hello")).rejects.toThrow("upstream boom");
-  });
 
-  it("chains an externally-supplied abort signal", async () => {
-    const controller = new AbortController();
-    controller.abort();
-    const safe = withCircuitBreaker(makeAgent(10), {
-      maxIterations: 10,
-      silent: true,
+    it("propagates non-CircuitBreaker errors unchanged", async () => {
+      const safe = withCircuitBreaker(makeAgent({ __throw: new Error("upstream boom") }), {
+        silent: true,
+        onTrip: () => "should not be called" as never,
+      });
+      await expect(safe.run("hello")).rejects.toThrow("upstream boom");
     });
-    await expect(
-      safe.run("hello", { signal: controller.signal }),
-    ).rejects.toMatchObject({ name: "AbortError" });
-  });
 
-  it("each invocation has its own counter", async () => {
-    const safe = withCircuitBreaker(makeAgent(2, 100), {
-      maxIterations: 3,
-      silent: true,
+    it("chains an externally-supplied abort signal", async () => {
+      const controller = new AbortController();
+      controller.abort();
+      const safe = withCircuitBreaker(makeAgent({ __turns: 10 }), { silent: true });
+      await expect(
+        safe.run("hello", { signal: controller.signal }),
+      ).rejects.toMatchObject({ name: "AbortError" });
     });
-    await expect(safe.run("a")).resolves.toEqual({ finalOutput: "done" });
-    await expect(safe.run("b")).resolves.toEqual({ finalOutput: "done" });
-  });
 
-  it("instanceof check works for thrown error", async () => {
-    const safe = withCircuitBreaker(makeAgent(10), {
-      maxIterations: 1,
-      silent: true,
+    it("forwards onEvent on stop", async () => {
+      const onEvent = vi.fn();
+      const safe = withCircuitBreaker(
+        makeAgent({ __turns: 10, __tokensPerTurn: 100 }),
+        {
+          maxInputToken: 50,
+          maxOutputToken: 1_000_000,
+          silent: true,
+          onEvent,
+        },
+      );
+      await expect(safe.run("hello")).rejects.toBeInstanceOf(CircuitBreakerError);
+      expect(onEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "stop", reason: "max_input_tokens" }),
+      );
     });
-    try {
-      await safe.run("hello");
-      throw new Error("expected to throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(CircuitBreakerError);
-    }
+
+    it("each invocation has its own counter", async () => {
+      const safe = withCircuitBreaker(
+        makeAgent({ __turns: 2, __tokensPerTurn: 100 }),
+        { maxInputToken: 500, maxOutputToken: 500, silent: true },
+      );
+      await expect(safe.run("a")).resolves.toEqual({ finalOutput: "done" });
+      await expect(safe.run("b")).resolves.toEqual({ finalOutput: "done" });
+    });
   });
 });

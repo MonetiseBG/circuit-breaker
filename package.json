@@ -1,7 +1,7 @@
 {
   "name": "@monetisebg/circuit-breaker",
   "version": "0.1.0",
-  "description": "Circuit breaker for AI agents — stop agent execution after configurable iteration or token limits. Adapters for LangChain and OpenAI Agents SDK.",
+  "description": "Circuit breaker for AI agents — pick budget-guard or loop-killer mode and stop runaway token spend or stuck agents in one wrapper. Adapters for LangChain and OpenAI Agents SDK.",
   "keywords": [
     "langchain",
     "langchainjs",
@@ -12,7 +12,9 @@
     "ai",
     "llm",
     "guardrail",
-    "token-limit"
+    "token-limit",
+    "budget-guard",
+    "loop-killer"
   ],
   "license": "Apache-2.0",
   "author": "MonetiseBG",

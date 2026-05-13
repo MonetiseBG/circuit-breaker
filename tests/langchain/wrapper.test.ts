@@ -21,7 +21,7 @@ function fakeRunnable(steps: number, tokensPerCall = 20) {
       for (let i = 0; i < steps; i++) {
         const runId = `run-${i}`;
         for (const cb of callbacks) {
-          await cb.handleLLMStart?.({}, [], runId);
+          await cb.handleLLMStart?.({}, [`prompt-${i}`], runId);
           await cb.handleLLMEnd?.(
             {
               generations: [[]],
@@ -43,32 +43,20 @@ function fakeRunnable(steps: number, tokensPerCall = 20) {
 }
 
 describe("withCircuitBreaker (LangChain wrapper)", () => {
-  it("passes through when limits are not exceeded", async () => {
-    const safe = withCircuitBreaker(fakeRunnable(2), {
-      maxIterations: 5,
-      silent: true,
-    });
+  it("works with no options (budget-guard defaults)", async () => {
+    const safe = withCircuitBreaker(fakeRunnable(2));
     await expect(safe.invoke({ input: "hi" })).resolves.toEqual({ output: "ok" });
   });
 
-  it("re-throws CircuitBreakerError when iterations exceeded and no onTrip", async () => {
-    const safe = withCircuitBreaker(fakeRunnable(10), {
-      maxIterations: 2,
+  it("re-throws CircuitBreakerError when token budget exceeded and no onTrip", async () => {
+    const safe = withCircuitBreaker(fakeRunnable(10, 100), {
+      maxInputToken: 200,
+      maxOutputToken: 1_000_000,
       silent: true,
     });
     await expect(safe.invoke({ input: "hi" })).rejects.toMatchObject({
       name: "CircuitBreakerError",
-      reason: "max_iterations",
-    });
-  });
-
-  it("re-throws on token-limit trip when no onTrip is set", async () => {
-    const safe = withCircuitBreaker(fakeRunnable(10, 20), {
-      maxTokens: 30,
-      silent: true,
-    });
-    await expect(safe.invoke({ input: "hi" })).rejects.toMatchObject({
-      reason: "max_tokens",
+      reason: "max_input_tokens",
     });
   });
 
@@ -76,8 +64,9 @@ describe("withCircuitBreaker (LangChain wrapper)", () => {
     const onTrip = vi
       .fn<(ctx: { reason: string }) => { output: string }>()
       .mockReturnValue({ output: "fallback" });
-    const safe = withCircuitBreaker(fakeRunnable(10), {
-      maxIterations: 2,
+    const safe = withCircuitBreaker(fakeRunnable(10, 100), {
+      maxInputToken: 100,
+      maxOutputToken: 1_000_000,
       silent: true,
       onTrip,
     });
@@ -85,8 +74,8 @@ describe("withCircuitBreaker (LangChain wrapper)", () => {
     expect(result).toEqual({ output: "fallback" });
     expect(onTrip).toHaveBeenCalledWith(
       expect.objectContaining({
-        reason: "max_iterations",
-        metrics: expect.objectContaining({ iterations: 3 }),
+        reason: "max_input_tokens",
+        mode: "budget-guard",
       }),
     );
   });
@@ -98,7 +87,6 @@ describe("withCircuitBreaker (LangChain wrapper)", () => {
       },
     };
     const safe = withCircuitBreaker(failing, {
-      maxIterations: 5,
       silent: true,
       onTrip: () => "should not be called",
     });
@@ -107,33 +95,59 @@ describe("withCircuitBreaker (LangChain wrapper)", () => {
 
   it("preserves user-supplied callbacks alongside the breaker", async () => {
     const userCallback: MinimalCallback = { handleLLMStart: vi.fn(async () => {}) };
-    const safe = withCircuitBreaker(fakeRunnable(3), {
-      maxIterations: 10,
-      silent: true,
-    });
+    const safe = withCircuitBreaker(fakeRunnable(3), { silent: true });
     await safe.invoke({ input: "hi" }, { callbacks: [userCallback] });
     expect(userCallback.handleLLMStart).toHaveBeenCalledTimes(3);
   });
 
-  it("uses a fresh counter for each invocation", async () => {
-    const safe = withCircuitBreaker(fakeRunnable(2), {
-      maxIterations: 3,
+  it("uses a fresh breaker for each invocation", async () => {
+    const safe = withCircuitBreaker(fakeRunnable(2, 50), {
+      maxInputToken: 100,
+      maxOutputToken: 100,
       silent: true,
     });
     await expect(safe.invoke({ input: "1" })).resolves.toEqual({ output: "ok" });
     await expect(safe.invoke({ input: "2" })).resolves.toEqual({ output: "ok" });
   });
 
-  it("exposes CircuitBreakerError as instanceof check", async () => {
-    const safe = withCircuitBreaker(fakeRunnable(10), {
-      maxIterations: 1,
+  it("forwards onEvent to the underlying breaker", async () => {
+    const onEvent = vi.fn();
+    const safe = withCircuitBreaker(fakeRunnable(10, 100), {
+      maxInputToken: 200,
+      maxOutputToken: 1_000_000,
+      silent: true,
+      onEvent,
+    });
+    await expect(safe.invoke({ input: "x" })).rejects.toBeInstanceOf(
+      CircuitBreakerError,
+    );
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "stop", reason: "max_input_tokens" }),
+    );
+  });
+
+  it("loop-killer trips on repeated prompts across calls", async () => {
+    // Runnable that always sends the same prompt on every iteration.
+    const loopingRunnable = {
+      async invoke(
+        _input: { input: string },
+        config?: { callbacks?: MinimalCallback[] },
+      ): Promise<{ output: string }> {
+        for (let i = 0; i < 20; i++) {
+          for (const cb of config?.callbacks ?? []) {
+            await cb.handleLLMStart?.({}, ["the same prompt"], `r${i}`);
+          }
+        }
+        return { output: "ok" };
+      },
+    };
+    const safe = withCircuitBreaker(loopingRunnable, {
+      mode: "loop-killer",
+      maxRetries: 2,
       silent: true,
     });
-    try {
-      await safe.invoke({ input: "x" });
-      throw new Error("expected to throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(CircuitBreakerError);
-    }
+    await expect(safe.invoke({ input: "x" })).rejects.toMatchObject({
+      reason: "repeated_state",
+    });
   });
 });

@@ -4,6 +4,7 @@ import type { LLMResult } from "@langchain/core/outputs";
 import {
   CircuitBreakerCallback,
   CircuitBreakerError,
+  type CircuitBreakerEvent,
 } from "../../src/langchain/index.js";
 
 const llmEnd = (input: number, output: number): LLMResult => ({
@@ -34,74 +35,117 @@ const usageMetadataLlmEnd = (input: number, output: number): LLMResult => ({
 });
 
 describe("CircuitBreakerCallback (LangChain adapter)", () => {
-  it("trips after maxIterations LLM starts", async () => {
-    const cb = new CircuitBreakerCallback({ maxIterations: 2, silent: true });
-    await cb.handleLLMStart({}, [], "r1");
-    await cb.handleLLMStart({}, [], "r2");
-    await expect(cb.handleLLMStart({}, [], "r3")).rejects.toBeInstanceOf(
-      CircuitBreakerError,
-    );
-    expect(cb.metrics.iterations).toBe(3);
-  });
+  describe("budget-guard (default mode)", () => {
+    it("trips on input token budget (OpenAI shape)", async () => {
+      const cb = new CircuitBreakerCallback({ maxInputToken: 50, maxOutputToken: 100, silent: true });
+      await cb.handleLLMEnd(llmEnd(40, 30), "r1");
+      await expect(cb.handleLLMEnd(llmEnd(20, 0), "r2")).rejects.toMatchObject({
+        reason: "max_input_tokens",
+      });
+    });
 
-  it("trips after maxTokens accumulated (OpenAI shape)", async () => {
-    const cb = new CircuitBreakerCallback({ maxTokens: 100, silent: true });
-    await cb.handleLLMEnd(llmEnd(40, 30), "r1");
-    await expect(cb.handleLLMEnd(llmEnd(50, 0), "r2")).rejects.toMatchObject({
-      reason: "max_tokens",
+    it("extracts tokens from Anthropic-shaped output", async () => {
+      const cb = new CircuitBreakerCallback({ maxInputToken: 25, maxOutputToken: 100, silent: true });
+      await cb.handleLLMEnd(anthropicLlmEnd(20, 20), "r1");
+      expect(cb.metrics.tokens.input).toBe(20);
+      await expect(
+        cb.handleLLMEnd(anthropicLlmEnd(10, 5), "r2"),
+      ).rejects.toBeInstanceOf(CircuitBreakerError);
+    });
+
+    it("extracts tokens from usage_metadata fallback", async () => {
+      const cb = new CircuitBreakerCallback({ maxInputToken: 200, maxOutputToken: 200, silent: true });
+      await cb.handleLLMEnd(usageMetadataLlmEnd(30, 15), "r1");
+      expect(cb.metrics.tokens).toEqual({ input: 30, output: 15, total: 45 });
     });
   });
 
-  it("extracts tokens from Anthropic-shaped output", async () => {
-    const cb = new CircuitBreakerCallback({ maxTokens: 50, silent: true });
-    await cb.handleLLMEnd(anthropicLlmEnd(20, 20), "r1");
-    expect(cb.metrics.tokens.total).toBe(40);
-    await expect(
-      cb.handleLLMEnd(anthropicLlmEnd(10, 5), "r2"),
-    ).rejects.toBeInstanceOf(CircuitBreakerError);
+  describe("loop-killer mode", () => {
+    it("trips on repeated last-message hash", async () => {
+      const events: CircuitBreakerEvent[] = [];
+      const cb = new CircuitBreakerCallback({
+        mode: "loop-killer",
+        maxRetries: 2,
+        silent: true,
+        onEvent: (e) => events.push(e),
+      });
+      // Simulate four turns where the most recent observation is identical.
+      const messages = [[{ content: "tool result: 42" }]];
+      await cb.handleChatModelStart({}, messages, "r1");
+      await cb.handleChatModelStart({}, messages, "r2");
+      await cb.handleChatModelStart({}, messages, "r3");
+      await expect(
+        cb.handleChatModelStart({}, messages, "r4"),
+      ).rejects.toMatchObject({ reason: "repeated_state" });
+      expect(events.some((e) => e.type === "retry")).toBe(true);
+      expect(events.at(-1)).toMatchObject({ type: "stop", reason: "repeated_state" });
+    });
+
+    it("falls back to handleLLMStart's last prompt for state key", async () => {
+      const cb = new CircuitBreakerCallback({
+        mode: "loop-killer",
+        maxRetries: 1,
+        silent: true,
+      });
+      await cb.handleLLMStart({}, ["same prompt"], "r1");
+      await cb.handleLLMStart({}, ["same prompt"], "r2");
+      await expect(
+        cb.handleLLMStart({}, ["same prompt"], "r3"),
+      ).rejects.toMatchObject({ reason: "repeated_state" });
+    });
+
+    it("does not trip when every chat input is distinct", async () => {
+      const cb = new CircuitBreakerCallback({
+        mode: "loop-killer",
+        maxRetries: 1,
+        silent: true,
+      });
+      for (let i = 0; i < 10; i++) {
+        await cb.handleChatModelStart({}, [[{ content: `step-${i}` }]], `r${i}`);
+      }
+      expect(cb.metrics.iterations).toBe(10);
+      expect(cb.metrics.retries).toBe(0);
+    });
   });
 
-  it("extracts tokens from usage_metadata fallback", async () => {
-    const cb = new CircuitBreakerCallback({ maxTokens: 200, silent: true });
-    await cb.handleLLMEnd(usageMetadataLlmEnd(30, 15), "r1");
-    expect(cb.metrics.tokens).toEqual({ input: 30, output: 15, total: 45 });
-  });
+  describe("lifecycle", () => {
+    it("dedupes count across handleLLMStart + handleChatModelStart with same runId", async () => {
+      const cb = new CircuitBreakerCallback({ silent: true });
+      await cb.handleLLMStart({}, ["p"], "r1");
+      await cb.handleChatModelStart({}, [[{ content: "p" }]], "r1");
+      expect(cb.metrics.iterations).toBe(1);
+    });
 
-  it("logs via default logger when tripped and is silenceable", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const cb = new CircuitBreakerCallback({ maxIterations: 1 });
-    await cb.handleLLMStart({}, [], "r1");
-    await expect(cb.handleLLMStart({}, [], "r2")).rejects.toBeInstanceOf(
-      CircuitBreakerError,
-    );
-    expect(warn).toHaveBeenCalledOnce();
-    expect(warn.mock.calls[0]?.[0]).toMatch(/iteration limit \(2\/1/);
-    warn.mockRestore();
-  });
+    it("logs via default logger when tripped and is silenceable", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const cb = new CircuitBreakerCallback({ maxInputToken: 1, maxOutputToken: 1 });
+      await expect(cb.handleLLMEnd(llmEnd(10, 10), "r1")).rejects.toBeInstanceOf(
+        CircuitBreakerError,
+      );
+      expect(warn).toHaveBeenCalledOnce();
+      warn.mockRestore();
+    });
 
-  it("dedupes count across handleLLMStart + handleChatModelStart with same runId", async () => {
-    const cb = new CircuitBreakerCallback({ maxIterations: 5, silent: true });
-    await cb.handleLLMStart({}, [], "r1");
-    await cb.handleChatModelStart({}, [], "r1");
-    expect(cb.metrics.iterations).toBe(1);
-  });
+    it("reset() clears counters and dedup state", async () => {
+      const cb = new CircuitBreakerCallback({ silent: true });
+      await cb.handleLLMStart({}, ["p"], "r1");
+      cb.reset();
+      expect(cb.metrics.iterations).toBe(0);
+      await cb.handleLLMStart({}, ["p"], "r1");
+      expect(cb.metrics.iterations).toBe(1);
+    });
 
-  it("reset() clears counters and dedup state", async () => {
-    const cb = new CircuitBreakerCallback({ maxIterations: 2, silent: true });
-    await cb.handleLLMStart({}, [], "r1");
-    cb.reset();
-    expect(cb.metrics.iterations).toBe(0);
-    await cb.handleLLMStart({}, [], "r1");
-    expect(cb.metrics.iterations).toBe(1);
-  });
-
-  it("does not double-trip once tripped", async () => {
-    const cb = new CircuitBreakerCallback({ maxIterations: 1, silent: true });
-    await cb.handleLLMStart({}, [], "r1");
-    await expect(cb.handleLLMStart({}, [], "r2")).rejects.toBeInstanceOf(
-      CircuitBreakerError,
-    );
-    await expect(cb.handleLLMStart({}, [], "r3")).resolves.toBeUndefined();
-    await expect(cb.handleLLMEnd(llmEnd(10, 10), "r3")).resolves.toBeUndefined();
+    it("does not double-trip once tripped", async () => {
+      const cb = new CircuitBreakerCallback({
+        maxInputToken: 1,
+        maxOutputToken: 1,
+        silent: true,
+      });
+      await expect(cb.handleLLMEnd(llmEnd(10, 10), "r1")).rejects.toBeInstanceOf(
+        CircuitBreakerError,
+      );
+      await expect(cb.handleLLMStart({}, ["p"], "r2")).resolves.toBeUndefined();
+      await expect(cb.handleLLMEnd(llmEnd(10, 10), "r2")).resolves.toBeUndefined();
+    });
   });
 });

@@ -6,13 +6,15 @@ import type { CircuitBreakerOptions, Metrics } from "../core/types.js";
 import { extractTokens } from "./tokens.js";
 
 /**
- * LangChain callback handler that counts LLM iterations and token usage and
- * trips (throws a CircuitBreakerError) once either configured limit is
- * exceeded. Attach via `config.callbacks` on a Runnable invocation, or use
+ * LangChain callback handler that drives a {@link CircuitBreaker}. Attach via
+ * `config.callbacks` on a Runnable invocation, or use
  * {@link ../langchain/wrapper#withCircuitBreaker} for the convenience wrapper.
  *
- * Each instance is single-use: counters carry across the whole invocation.
- * For a fresh invocation, create a new instance (or call {@link reset}).
+ * For `loop-killer` mode the callback summarises each call (the last prompt or
+ * last chat message) into a state key the breaker hashes for loop detection.
+ *
+ * Each instance is single-use: counters carry across the whole invocation. For
+ * a fresh invocation, create a new instance (or call {@link reset}).
  */
 export class CircuitBreakerCallback extends BaseCallbackHandler {
   override name = "CircuitBreakerCallback";
@@ -36,18 +38,18 @@ export class CircuitBreakerCallback extends BaseCallbackHandler {
 
   override async handleLLMStart(
     _llm: unknown,
-    _prompts: string[],
+    prompts: string[],
     runId: string,
   ): Promise<void> {
-    this.countIteration(runId);
+    this.countIteration(runId, prompts[prompts.length - 1]);
   }
 
   override async handleChatModelStart(
     _llm: unknown,
-    _messages: unknown,
+    messages: unknown,
     runId: string,
   ): Promise<void> {
-    this.countIteration(runId);
+    this.countIteration(runId, summariseLastMessage(messages));
   }
 
   override async handleLLMEnd(
@@ -61,12 +63,38 @@ export class CircuitBreakerCallback extends BaseCallbackHandler {
     this.breaker.addTokens(input, out);
   }
 
-  private countIteration(runId: string): void {
+  private countIteration(runId: string, stateKey: string | undefined): void {
     if (this.breaker.isTripped) return;
     // Newer LangChain versions may dispatch both handleLLMStart and
     // handleChatModelStart for the same call — dedupe defensively.
     if (this.countedRuns.has(runId)) return;
     this.countedRuns.add(runId);
-    this.breaker.recordIteration();
+    this.breaker.recordIteration(stateKey);
   }
+}
+
+/**
+ * Reduce LangChain's `BaseMessage[][]` (or unknown shape) to a stable string
+ * representing the latest message — what we hash for loop detection. Full
+ * histories grow each turn and never collide, so we use only the most recent
+ * item: when an agent is stuck calling the same tool, the most recent
+ * observation passed into the next LLM call is identical across turns.
+ */
+function summariseLastMessage(messages: unknown): string | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  const lastBatch = messages[messages.length - 1];
+  if (!Array.isArray(lastBatch)) return undefined;
+  const last = lastBatch[lastBatch.length - 1];
+  if (last == null) return undefined;
+  if (typeof last === "string") return last;
+  if (typeof last === "object") {
+    const content = (last as { content?: unknown }).content;
+    if (typeof content === "string") return content;
+    try {
+      return JSON.stringify(content ?? last);
+    } catch {
+      return undefined;
+    }
+  }
+  return String(last);
 }

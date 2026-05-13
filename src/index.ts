@@ -8,13 +8,20 @@
 // adapter for a framework we don't ship yet.
 export { CircuitBreaker, CircuitBreakerError, defaultLogger } from "./core/index.js";
 export type {
+  BudgetGuardConfig,
+  CircuitBreakerEvent,
   CircuitBreakerOptions,
-  Limits,
+  CommonConfig,
+  EventListener,
   Logger,
+  LoopKillerConfig,
   Metrics,
+  Mode,
+  ModeConfig,
   OnTrip,
+  ResolvedLimits,
+  StopReason,
   TokenMetrics,
   TripContext,
-  TripReason,
   WrapperOptions,
 } from "./core/index.js";

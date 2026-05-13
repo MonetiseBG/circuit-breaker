@@ -10,18 +10,18 @@ import type {
 
 import { CircuitBreaker } from "../core/breaker.js";
 import { CircuitBreakerError } from "../core/errors.js";
-import type { WrapperOptions } from "../core/types.js";
+import type { CircuitBreakerOptions, WrapperOptions } from "../core/types.js";
 
 /**
  * Wrapper-specific options for the @openai/agents adapter. Extends the
  * generic {@link WrapperOptions} with `runConfig`, forwarded to the internal
  * Runner so callers can plug in their own model provider, tracing, etc.
  */
-export interface OpenAIAgentsWrapperOptions<TFallback = never>
-  extends WrapperOptions<TFallback> {
-  /** Optional config forwarded to `new Runner(...)` for each invocation. */
-  runConfig?: Partial<RunConfig>;
-}
+export type OpenAIAgentsWrapperOptions<TFallback = never> =
+  WrapperOptions<TFallback> & {
+    /** Optional config forwarded to `new Runner(...)` for each invocation. */
+    runConfig?: Partial<RunConfig>;
+  };
 
 type RunInput<TContext, TAgent extends Agent<any, any>> =
   | string
@@ -40,9 +40,10 @@ export interface WrappedAgent<
 
 /**
  * Wrap an @openai/agents `Agent` so its runs are cut off when the configured
- * iteration or token limit is exceeded.
+ * circuit-breaker mode trips.
  *
- * - Iterations are counted on each `agent_start` event (one per turn).
+ * - Iterations are counted on each `agent_start` event (one per turn). For
+ *   `loop-killer` mode the latest `turnInput` item is hashed as the state key.
  * - Tokens are read from the live `RunContext.usage` snapshot on each turn
  *   boundary (`agent_start` and `agent_end`).
  * - On trip, an internal AbortSignal is fired to cancel the in-flight run;
@@ -54,19 +55,18 @@ export interface WrappedAgent<
  * Streaming mode (`stream: true`) is not yet supported; use the core
  * `CircuitBreaker` directly if you need it.
  */
-export function withCircuitBreaker<TAgent extends Agent<any, any>>(
+export function withCircuitBreaker<
+  TAgent extends Agent<any, any>,
+  TFallback = never,
+>(
   agent: TAgent,
-  options: OpenAIAgentsWrapperOptions<never>,
-): WrappedAgent<TAgent>;
-export function withCircuitBreaker<TAgent extends Agent<any, any>, TFallback>(
-  agent: TAgent,
-  options: OpenAIAgentsWrapperOptions<TFallback>,
-): WrappedAgent<TAgent, TFallback>;
-export function withCircuitBreaker<TAgent extends Agent<any, any>, TFallback>(
-  agent: TAgent,
-  options: OpenAIAgentsWrapperOptions<TFallback>,
+  options?: OpenAIAgentsWrapperOptions<TFallback>,
 ): WrappedAgent<TAgent, TFallback> {
-  const { onTrip, runConfig, ...breakerOpts } = options;
+  const onTrip = options?.onTrip;
+  const runConfig = options?.runConfig;
+  const breakerOpts: CircuitBreakerOptions = options
+    ? stripWrapperOnly(options)
+    : {};
 
   return {
     async run<TContext = undefined>(
@@ -103,8 +103,8 @@ export function withCircuitBreaker<TAgent extends Agent<any, any>, TFallback>(
         }
       };
 
-      runner.on("agent_start", (context) => {
-        guard(() => breaker.recordIteration());
+      runner.on("agent_start", (context, _agent, turnInput) => {
+        guard(() => breaker.recordIteration(summariseTurnInput(turnInput)));
         guard(() =>
           breaker.setTokenSnapshot(
             context.usage.inputTokens,
@@ -135,4 +135,26 @@ export function withCircuitBreaker<TAgent extends Agent<any, any>, TFallback>(
       }
     },
   };
+}
+
+function stripWrapperOnly<R>(
+  opts: OpenAIAgentsWrapperOptions<R>,
+): CircuitBreakerOptions {
+  const { onTrip: _onTrip, runConfig: _runConfig, ...rest } =
+    opts as OpenAIAgentsWrapperOptions<R> & {
+      onTrip?: unknown;
+      runConfig?: unknown;
+    };
+  return rest as CircuitBreakerOptions;
+}
+
+function summariseTurnInput(turnInput: AgentInputItem[] | undefined): string | undefined {
+  if (!turnInput || turnInput.length === 0) return undefined;
+  const last = turnInput[turnInput.length - 1];
+  if (last == null) return undefined;
+  try {
+    return JSON.stringify(last);
+  } catch {
+    return undefined;
+  }
 }
