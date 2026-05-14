@@ -179,35 +179,6 @@ When a limit is reached the wrapper logs and throws:
 Pass `silent: true` to suppress the log, or `logger: (msg, ctx) => …` to send
 it elsewhere.
 
-## Low-level: core class
-
-If you'd rather drive the breaker yourself (e.g. for a framework we don't
-ship an adapter for), the core class is exported from the package root:
-
-```ts
-import { CircuitBreaker, CircuitBreakerError } from "@monetisebg/circuit-breaker";
-
-const breaker = new CircuitBreaker({
-  mode: "loop-killer",
-  maxRetries: 3,
-  onEvent: console.log,
-});
-
-// On every LLM call / agent turn:
-breaker.recordIteration(stateKey);    // stateKey is optional; used for hashing
-
-// When you see per-call usage (budget-guard):
-breaker.addTokens(inputTokens, outputTokens);
-
-// Or when your framework gives you a running total:
-breaker.setTokenSnapshot(totalIn, totalOut);
-
-// Read state any time:
-breaker.metrics;  // { iterations, retries, tokens: { input, output, total } }
-```
-
-Each call may throw `CircuitBreakerError` when a limit is exceeded.
-
 ## Options reference
 
 | Field                  | Mode         | Type        | Default    | Description                                                                  |
@@ -217,26 +188,11 @@ Each call may throw `CircuitBreakerError` when a limit is exceeded.
 | `maxOutputToken`       | budget-guard | `int ≥ 1`   | `10_000`   | Max aggregate output tokens before trip.                                     |
 | `maxRetries`           | loop-killer  | `int ≥ 1`   | `3`        | Max times the same state may recur (or, with detection off, raw iterations). |
 | `detectRepeatedState`  | loop-killer  | `boolean`   | `true`     | Hash each step's state for loop detection.                                   |
-| `silent`               | both         | `boolean`   | `false`    | Suppress the default trip log.                                               |
-| `logger`               | both         | `Logger`    | `console.warn` | Custom trip logger. Ignored when `silent: true`.                         |
 | `onEvent`              | both         | `EventListener` | —      | Receives `CircuitBreakerEvent` updates.                                      |
 | `onTrip`               | wrappers     | `OnTrip<R>` | —          | Suppress the throw and use the callback's return value instead.              |
-| `runConfig`            | OpenAI Agents | `Partial<RunConfig>` | — | Forwarded to the internal `Runner`.                                          |
 
 All numeric options are validated at construction; passing `0`, a negative,
 `NaN`, `Infinity`, or a non-integer throws a `TypeError`.
-
-## Token extraction (LangChain)
-
-The breaker reads token usage from `LLMResult.llmOutput` and falls back through:
-
-1. `llmOutput.tokenUsage` — OpenAI shape (`promptTokens` / `completionTokens`).
-2. `llmOutput.usage` — Anthropic / snake_case (`input_tokens` / `output_tokens`).
-3. `generations[0][i].message.usage_metadata` — newer LangChain message shape.
-
-If your provider exposes usage in a different field, `budget-guard` won't fire
-on tokens for it (`loop-killer` still works). Open an issue with the shape and
-we'll add it.
 
 ## Contributing
 
