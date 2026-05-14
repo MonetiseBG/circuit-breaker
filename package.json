@@ -1,12 +1,15 @@
 {
   "name": "@monetisebg/circuit-breaker",
   "version": "0.1.0",
-  "description": "Circuit breaker for AI agents — pick budget-guard or loop-killer mode and stop runaway token spend or stuck agents in one wrapper. Adapters for LangChain and OpenAI Agents SDK.",
+  "description": "Circuit breaker for AI agents — pick budget-guard or loop-killer mode and stop runaway token spend or stuck agents in one wrapper. Adapters for LangChain, OpenAI Agents SDK, and the Claude Agent SDK.",
   "keywords": [
     "langchain",
     "langchainjs",
     "openai",
     "openai-agents",
+    "claude",
+    "anthropic",
+    "claude-agent-sdk",
     "agent",
     "circuit-breaker",
     "ai",
@@ -45,6 +48,11 @@
       "types": "./dist/openai-agents.d.ts",
       "import": "./dist/openai-agents.js",
       "require": "./dist/openai-agents.cjs"
+    },
+    "./claude-agent-sdk": {
+      "types": "./dist/claude-agent-sdk.d.ts",
+      "import": "./dist/claude-agent-sdk.js",
+      "require": "./dist/claude-agent-sdk.cjs"
     }
   },
   "files": [
@@ -62,10 +70,14 @@
     "prepublishOnly": "npm run typecheck && npm run test && npm run build"
   },
   "peerDependencies": {
+    "@anthropic-ai/claude-agent-sdk": ">=0.2.0 <1.0.0",
     "@langchain/core": ">=0.3.0 <1.0.0",
     "@openai/agents": ">=0.11.0 <1.0.0"
   },
   "peerDependenciesMeta": {
+    "@anthropic-ai/claude-agent-sdk": {
+      "optional": true
+    },
     "@langchain/core": {
       "optional": true
     },
@@ -74,6 +86,7 @@
     }
   },
   "devDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.141",
     "@langchain/core": "^0.3.0",
     "@openai/agents": "^0.11.0",
     "@types/node": "^22.0.0",

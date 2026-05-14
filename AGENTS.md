@@ -29,6 +29,9 @@ Current adapters:
   (e.g. `AgentExecutor`) via a `BaseCallbackHandler`.
 - `@monetisebg/circuit-breaker/openai-agents` — wraps an `Agent` from the
   OpenAI Agents SDK using `Runner` events and `AbortSignal`.
+- `@monetisebg/circuit-breaker/claude-agent-sdk` — wraps the Claude Agent
+  SDK's `query` function; drives the breaker off the streamed `SDKMessage`s
+  and aborts via the SDK's `abortController` option.
 
 The package root (`@monetisebg/circuit-breaker`) exports only the core:
 `CircuitBreaker`, `CircuitBreakerError`, and the option/context types.
@@ -54,16 +57,22 @@ src/
 │   ├── wrapper.ts         #   withCircuitBreaker(agent, options) — uses
 │   │                      #   Runner + AbortController + lifecycle events.
 │   └── index.ts
+├── claude-agent-sdk/      # @anthropic-ai/claude-agent-sdk adapter.
+│   ├── wrapper.ts         #   withCircuitBreaker(query, options) — wraps the
+│   │                      #   query() generator + AbortController.
+│   └── index.ts
 └── index.ts               # Root: re-exports core only.
 
 tests/
 ├── core/breaker.test.ts
 ├── langchain/{callback,wrapper}.test.ts
-└── openai-agents/wrapper.test.ts
+├── openai-agents/wrapper.test.ts
+└── claude-agent-sdk/wrapper.test.ts
 ```
 
 Build output goes to `dist/` with one ESM bundle, one CJS bundle, and one
-`.d.ts` per entry (`index`, `langchain`, `openai-agents`).
+`.d.ts` per entry (`index`, `langchain`, `openai-agents`,
+`claude-agent-sdk`).
 
 ---
 

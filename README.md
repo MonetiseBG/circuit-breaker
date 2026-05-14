@@ -15,16 +15,17 @@ mode — the breaker stops the run before it burns tokens or spins in a loop.
 - Typed: throws a `CircuitBreakerError`, or routes through your `onTrip` handler.
 - Optional peer dependencies — only install the framework you actually use.
 
-Shipped adapters: **LangChain.js**, **OpenAI Agents SDK**. The core is
-framework-agnostic; rolling your own adapter is a few lines.
+Shipped adapters: **LangChain.js**, **OpenAI Agents SDK**, **Claude Agent
+SDK**. The core is framework-agnostic; rolling your own adapter is a few lines.
 
 ## Install
 
 ```bash
 npm install @monetisebg/circuit-breaker
 # plus the framework you use:
-npm install @langchain/core      # for the LangChain adapter
-npm install @openai/agents       # for the OpenAI Agents adapter
+npm install @langchain/core              # for the LangChain adapter
+npm install @openai/agents               # for the OpenAI Agents adapter
+npm install @anthropic-ai/claude-agent-sdk  # for the Claude Agent SDK adapter
 ```
 
 ## Quick start (`budget-guard`, the default)
@@ -167,6 +168,36 @@ wrapper aborts the in-flight run via `AbortSignal`; any caller-supplied
 `signal` is chained, so external cancellation still works.
 
 > Streaming (`stream: true`) is not yet supported. Open an issue if you need it.
+
+## Claude Agent SDK
+
+```ts
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import { withCircuitBreaker } from "@monetisebg/circuit-breaker/claude-agent-sdk";
+
+const safeQuery = withCircuitBreaker(query, {
+  maxInputToken: 50_000,
+  maxOutputToken: 20_000,
+});
+
+for await (const message of safeQuery({ prompt: "Analyze this repo" })) {
+  // messages stream through untouched
+}
+```
+
+The wrapper takes the SDK's `query` function and returns a drop-in
+replacement with the same call signature. It's itself an async generator —
+`SDKMessage`s stream through unchanged while the breaker watches them.
+
+Iterations are counted on each `assistant` message (one per turn); its
+content blocks are hashed for `loop-killer` detection. Tokens are read from
+each assistant message's `usage` (input counts `input_tokens` plus cache
+read/creation tokens). When a limit is hit the wrapper aborts the in-flight
+query via the SDK's `abortController` option; any `abortController` you pass
+in `options` is chained, so external cancellation still works.
+
+With `onTrip`, the callback's return value is yielded as the generator's
+final item instead of throwing.
 
 ## Trip output
 
