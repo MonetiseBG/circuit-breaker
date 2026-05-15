@@ -258,5 +258,56 @@ describe("CircuitBreaker (core)", () => {
         () => new CircuitBreaker({ mode: "loop-killer", maxRetries: 1.5 }),
       ).toThrow(/maxRetries must be a positive integer/);
     });
+
+    it("rejects runtime mode values outside the public union", () => {
+      expect(
+        () => new CircuitBreaker({ mode: "invalid" } as never),
+      ).toThrow(/mode must be "budget-guard" or "loop-killer"/);
+      expect(
+        () => new CircuitBreaker({ mode: 42 } as never),
+      ).toThrow(TypeError);
+    });
+  });
+
+  describe("checkInputEstimate (preflight)", () => {
+    it("trips with max_input_tokens before any addTokens call", () => {
+      const b = new CircuitBreaker({
+        maxInputToken: 100,
+        maxOutputToken: 100,
+        silent: true,
+      });
+      expect(() => b.checkInputEstimate(150)).toThrow(
+        expect.objectContaining({ reason: "max_input_tokens" }),
+      );
+      expect(b.isTripped).toBe(true);
+    });
+
+    it("does not trip when estimate is within budget", () => {
+      const b = new CircuitBreaker({
+        maxInputToken: 100,
+        maxOutputToken: 100,
+        silent: true,
+      });
+      b.checkInputEstimate(99);
+      expect(b.isTripped).toBe(false);
+      expect(b.metrics.tokens.input).toBe(0);
+    });
+
+    it("no-op when mode is loop-killer", () => {
+      const b = new CircuitBreaker({
+        mode: "loop-killer",
+        maxRetries: 1,
+        silent: true,
+      });
+      b.checkInputEstimate(1_000_000);
+      expect(b.isTripped).toBe(false);
+    });
+
+    it("rejects invalid estimate values", () => {
+      const b = new CircuitBreaker({ silent: true });
+      expect(() => b.checkInputEstimate(-1)).toThrow(TypeError);
+      expect(() => b.checkInputEstimate(Number.NaN)).toThrow(TypeError);
+      expect(() => b.checkInputEstimate(Infinity)).toThrow(TypeError);
+    });
   });
 });

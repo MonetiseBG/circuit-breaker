@@ -6,14 +6,20 @@
 > One wrapper between you and runaway execution.
 
 Minimal **circuit breaker** for AI agents. Wrap any supported agent and pick a
-mode — the breaker stops the run before it burns tokens or spins in a loop.
+mode — the breaker cuts the run short once provider-reported usage crosses a
+limit, and (optionally) refuses an oversized prompt before it is even sent.
 
 - Zero-config: defaults work out of the box.
 - Two modes, pick one: **`budget-guard`** (token caps) and **`loop-killer`**
   (state-repeat detection).
+- Post-hoc enforcement by default: token tripping happens **after** each call
+  or turn boundary, so the call that crosses the limit still counts. Use the
+  optional `estimateInputTokens` preflight (see below) to reject oversized
+  initial inputs before any provider work happens.
 - Visible: emits `CircuitBreakerEvent`s as the run progresses.
 - Typed: throws a `CircuitBreakerError`, or routes through your `onTrip` handler.
 - Optional peer dependencies — only install the framework you actually use.
+- No bundled tokenizer: bring your own (`js-tiktoken`, `tiktoken`, provider SDK).
 
 Shipped adapters: **LangChain.js**, **OpenAI Agents SDK**, **Claude Agent
 SDK**. The core is framework-agnostic; rolling your own adapter is a few lines.
@@ -39,8 +45,11 @@ await safeAgent.run("Analyze this dataset");
 ```
 
 `budget-guard` caps input and output tokens **independently**. Default limits:
-`maxInputToken = 10_000`, `maxOutputToken = 10_000`. The breaker trips the
-moment either bucket is exceeded.
+`maxInputToken = 10_000`, `maxOutputToken = 10_000`. Token usage is read from
+each provider response, so the breaker trips on the **next** call/turn after
+either bucket is exceeded — the call that pushed the bucket over the limit
+still counts. To reject an oversized first prompt before it is sent, pass an
+optional `estimateInputTokens` preflight (next section).
 
 ```ts
 withCircuitBreaker(agent, {
@@ -49,6 +58,27 @@ withCircuitBreaker(agent, {
   maxOutputToken: 20_000,
 });
 ```
+
+### Preflight — `estimateInputTokens`
+
+```ts
+import { encoding_for_model } from "js-tiktoken";
+const enc = encoding_for_model("gpt-4o");
+
+withCircuitBreaker(agent, {
+  maxInputToken: 50_000,
+  // input is the wrapper's call argument (typed per adapter)
+  estimateInputTokens: (input) =>
+    typeof input === "string" ? enc.encode(input).length : undefined,
+});
+```
+
+If the estimate exceeds `maxInputToken` the wrapper throws
+`CircuitBreakerError` with `reason: "max_input_tokens"` **before** the
+underlying runnable / runner / query is called. Return `undefined` to skip
+the check for that invocation (e.g. when you can't tokenize the input shape).
+This is opt-in — without an estimator the wrapper behaves as before. No
+tokenizer is bundled.
 
 ## `loop-killer` mode
 
@@ -215,8 +245,9 @@ it elsewhere.
 | Field                  | Mode         | Type        | Default    | Description                                                                  |
 | ---------------------- | ------------ | ----------- | ---------- | ---------------------------------------------------------------------------- |
 | `mode`                 | both         | `Mode`      | `"budget-guard"` | `"budget-guard"` or `"loop-killer"`.                                  |
-| `maxInputToken`        | budget-guard | `int ≥ 1`   | `10_000`   | Max aggregate input tokens before trip.                                      |
-| `maxOutputToken`       | budget-guard | `int ≥ 1`   | `10_000`   | Max aggregate output tokens before trip.                                     |
+| `maxInputToken`        | budget-guard | `int ≥ 1`   | `10_000`   | Max aggregate input tokens before trip (post-hoc).                            |
+| `maxOutputToken`       | budget-guard | `int ≥ 1`   | `10_000`   | Max aggregate output tokens before trip (post-hoc).                           |
+| `estimateInputTokens`  | budget-guard | `(input) => number \| undefined` | — | Preflight estimator; trips before the call when the estimate exceeds `maxInputToken`. |
 | `maxRetries`           | loop-killer  | `int ≥ 1`   | `3`        | Max times the same state may recur (or, with detection off, raw iterations). |
 | `detectRepeatedState`  | loop-killer  | `boolean`   | `true`     | Hash each step's state for loop detection.                                   |
 | `onEvent`              | both         | `EventListener` | —      | Receives `CircuitBreakerEvent` updates.                                      |
@@ -226,7 +257,7 @@ All numeric options are validated at construction; passing `0`, a negative,
 `NaN`, `Infinity`, or a non-integer throws a `TypeError`.
 
 ## Contributing
-
+c
 See [`AGENTS.md`](./AGENTS.md) for the project layout, build/test commands,
 and the recipe for adding a new framework adapter.
 

@@ -1,5 +1,9 @@
 import { CircuitBreakerError } from "../core/errors.js";
-import type { CircuitBreakerOptions, WrapperOptions } from "../core/types.js";
+import type {
+  CircuitBreakerOptions,
+  EstimateInputTokens,
+  WrapperOptions,
+} from "../core/types.js";
 import { CircuitBreakerCallback } from "./callback.js";
 
 /**
@@ -27,15 +31,18 @@ export interface WrappedRunnable<TInput, TOutput> {
  * (10k input + 10k output tokens). Without `onTrip` the wrapper re-throws
  * `CircuitBreakerError`; with `onTrip` the error is suppressed and the
  * callback's return value becomes the wrapper's result.
+ *
+ * If `estimateInputTokens` is supplied the wrapper runs it on the `invoke`
+ * input before calling the runnable; an oversized prompt trips the breaker
+ * preflight so the runnable is never invoked.
  */
 export function withCircuitBreaker<TInput, TOutput, TFallback = never>(
   runnable: RunnableLike<TInput, TOutput>,
-  options?: WrapperOptions<TFallback>,
+  options?: WrapperOptions<TFallback, TInput>,
 ): WrappedRunnable<TInput, TOutput | TFallback> {
-  const callbackOpts: CircuitBreakerOptions = options
-    ? stripOnTrip(options)
-    : {};
+  const callbackOpts = stripWrapperOnly(options);
   const onTrip = options?.onTrip;
+  const estimate = pickEstimator(options);
 
   return {
     async invoke(input, config) {
@@ -43,6 +50,12 @@ export function withCircuitBreaker<TInput, TOutput, TFallback = never>(
       const existing = (config?.callbacks as unknown[] | undefined) ?? [];
       const callbacks = [...existing, breaker];
       try {
+        if (estimate) {
+          const estimated = estimate(input);
+          if (typeof estimated === "number") {
+            breaker.checkInputEstimate(estimated);
+          }
+        }
         return await runnable.invoke(input, { ...config, callbacks });
       } catch (err) {
         if (err instanceof CircuitBreakerError && onTrip) {
@@ -54,9 +67,24 @@ export function withCircuitBreaker<TInput, TOutput, TFallback = never>(
   };
 }
 
-function stripOnTrip<R>(opts: WrapperOptions<R>): CircuitBreakerOptions {
-  const { onTrip: _onTrip, ...rest } = opts as WrapperOptions<R> & {
+function stripWrapperOnly<R, TInput>(
+  opts: WrapperOptions<R, TInput> | undefined,
+): CircuitBreakerOptions {
+  if (!opts) return {};
+  const {
+    onTrip: _onTrip,
+    estimateInputTokens: _estimate,
+    ...rest
+  } = opts as WrapperOptions<R, TInput> & {
     onTrip?: unknown;
+    estimateInputTokens?: unknown;
   };
   return rest as CircuitBreakerOptions;
+}
+
+function pickEstimator<R, TInput>(
+  opts: WrapperOptions<R, TInput> | undefined,
+): EstimateInputTokens<TInput> | undefined {
+  if (!opts || opts.mode === "loop-killer") return undefined;
+  return opts.estimateInputTokens;
 }

@@ -10,34 +10,35 @@ export interface ExtractedTokens {
  * expose usage in different shapes; we check the common ones and fall back to
  * zero if nothing is recognised (the breaker simply won't fire on tokens for
  * that provider — iteration limits still work).
+ *
+ * Each candidate shape is validated through {@link numberField} so a
+ * malformed payload (e.g. `prompt_tokens: "10"`) returns zero rather than
+ * corrupting breaker metrics.
  */
 export function extractTokens(result: LLMResult): ExtractedTokens {
-  const llmOutput = (result.llmOutput ?? {}) as Record<string, unknown>;
+  const llmOutput = isRecord(result.llmOutput) ? result.llmOutput : {};
 
-  // OpenAI-style: { tokenUsage: { promptTokens, completionTokens, totalTokens } }
-  const tokenUsage = llmOutput["tokenUsage"] as
-    | { promptTokens?: number; completionTokens?: number }
-    | undefined;
-  if (tokenUsage) {
+  // OpenAI-style: { tokenUsage: { promptTokens, completionTokens } }
+  const tokenUsage = llmOutput["tokenUsage"];
+  if (isRecord(tokenUsage)) {
     return {
-      input: tokenUsage.promptTokens ?? 0,
-      output: tokenUsage.completionTokens ?? 0,
+      input: numberField(tokenUsage, "promptTokens") ?? 0,
+      output: numberField(tokenUsage, "completionTokens") ?? 0,
     };
   }
 
   // Anthropic / generic snake_case: { usage: { input_tokens, output_tokens } }
-  const usage = llmOutput["usage"] as
-    | {
-        input_tokens?: number;
-        output_tokens?: number;
-        prompt_tokens?: number;
-        completion_tokens?: number;
-      }
-    | undefined;
-  if (usage) {
+  const usage = llmOutput["usage"];
+  if (isRecord(usage)) {
     return {
-      input: usage.input_tokens ?? usage.prompt_tokens ?? 0,
-      output: usage.output_tokens ?? usage.completion_tokens ?? 0,
+      input:
+        numberField(usage, "input_tokens") ??
+        numberField(usage, "prompt_tokens") ??
+        0,
+      output:
+        numberField(usage, "output_tokens") ??
+        numberField(usage, "completion_tokens") ??
+        0,
     };
   }
 
@@ -45,16 +46,29 @@ export function extractTokens(result: LLMResult): ExtractedTokens {
   const firstBatch = result.generations?.[0];
   if (firstBatch) {
     for (const gen of firstBatch) {
-      const message = (gen as { message?: { usage_metadata?: { input_tokens?: number; output_tokens?: number } } }).message;
-      const meta = message?.usage_metadata;
-      if (meta) {
-        return {
-          input: meta.input_tokens ?? 0,
-          output: meta.output_tokens ?? 0,
-        };
-      }
+      if (!isRecord(gen)) continue;
+      const message = gen["message"];
+      if (!isRecord(message)) continue;
+      const meta = message["usage_metadata"];
+      if (!isRecord(meta)) continue;
+      return {
+        input: numberField(meta, "input_tokens") ?? 0,
+        output: numberField(meta, "output_tokens") ?? 0,
+      };
     }
   }
 
   return { input: 0, output: 0 };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function numberField(
+  record: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

@@ -232,4 +232,48 @@ describe("withCircuitBreaker (@anthropic-ai/claude-agent-sdk wrapper)", () => {
       await expect(collect(safe({ prompt: "b" }))).resolves.toHaveLength(3);
     });
   });
+
+  describe("preflight (estimateInputTokens)", () => {
+    it("trips before the wrapped query is ever consumed", async () => {
+      let consumed = false;
+      const tracking: QueryFn = (async function* () {
+        consumed = true;
+        yield assistant([{ type: "text", text: "x" }], 0);
+      }) as unknown as QueryFn;
+
+      const safe = withCircuitBreaker(tracking, {
+        maxInputToken: 100,
+        maxOutputToken: 100_000,
+        silent: true,
+        estimateInputTokens: (params) => {
+          return typeof params.prompt === "string" ? params.prompt.length : 0;
+        },
+      });
+
+      await expect(
+        collect(safe({ prompt: "x".repeat(150) })),
+      ).rejects.toMatchObject({ reason: "max_input_tokens" });
+      expect(consumed).toBe(false);
+    });
+
+    it("preflight routes through onTrip when provided", async () => {
+      const fallback = { type: "result", subtype: "preflight-fallback" } as const;
+      const onTrip = vi.fn().mockReturnValue(fallback);
+      const safe = withCircuitBreaker(
+        makeQuery({ turns: 5, tokensPerTurn: 100 }),
+        {
+          maxInputToken: 50,
+          maxOutputToken: 100_000,
+          silent: true,
+          estimateInputTokens: () => 9_999,
+          onTrip,
+        },
+      );
+      const messages = await collect(safe({ prompt: "hello" }));
+      expect(messages).toEqual([fallback]);
+      expect(onTrip).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: "max_input_tokens" }),
+      );
+    });
+  });
 });

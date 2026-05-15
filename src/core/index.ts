@@ -6,6 +6,7 @@ export type {
   CircuitBreakerEvent,
   CircuitBreakerOptions,
   CommonConfig,
+  EstimateInputTokens,
   EventListener,
   Logger,
   LoopKillerConfig,

@@ -31,6 +31,11 @@ export class CircuitBreakerCallback extends BaseCallbackHandler {
     return this.breaker.metrics;
   }
 
+  /** Run a preflight input-token estimate; trips before any LLM call if it exceeds `maxInputToken`. */
+  checkInputEstimate(estimatedInputTokens: number): void {
+    this.breaker.checkInputEstimate(estimatedInputTokens);
+  }
+
   reset(): void {
     this.breaker.reset();
     this.countedRuns.clear();
@@ -88,7 +93,7 @@ function summariseLastMessage(messages: unknown): string | undefined {
   if (last == null) return undefined;
   if (typeof last === "string") return last;
   if (typeof last === "object") {
-    const content = (last as { content?: unknown }).content;
+    const content = isRecord(last) ? last["content"] : undefined;
     if (typeof content === "string") return content;
     try {
       return JSON.stringify(content ?? last);
@@ -97,4 +102,8 @@ function summariseLastMessage(messages: unknown): string | undefined {
     }
   }
   return String(last);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

@@ -126,6 +126,61 @@ describe("withCircuitBreaker (LangChain wrapper)", () => {
     );
   });
 
+  it("preflight estimator trips before the runnable is invoked", async () => {
+    const invoke = vi.fn(async () => ({ output: "should not run" }));
+    const runnable = { invoke };
+    const safe = withCircuitBreaker(runnable, {
+      maxInputToken: 100,
+      maxOutputToken: 100,
+      silent: true,
+      estimateInputTokens: (input) => {
+        // input is typed as the runnable's input — exercise the generic.
+        return (input as { input: string }).input.length;
+      },
+    });
+    const oversized = "x".repeat(101);
+    await expect(safe.invoke({ input: oversized })).rejects.toMatchObject({
+      reason: "max_input_tokens",
+    });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("preflight estimator returning undefined skips the check", async () => {
+    const invoke = vi.fn(async () => ({ output: "ok" }));
+    const runnable = { invoke };
+    const safe = withCircuitBreaker(runnable, {
+      maxInputToken: 10,
+      maxOutputToken: 10,
+      silent: true,
+      estimateInputTokens: () => undefined,
+    });
+    await expect(safe.invoke({ input: "x" } as never)).resolves.toEqual({
+      output: "ok",
+    });
+    expect(invoke).toHaveBeenCalledOnce();
+  });
+
+  it("preflight trip routes through onTrip when provided", async () => {
+    const invoke = vi.fn(async () => ({ output: "should not run" }));
+    const onTrip = vi.fn().mockReturnValue({ output: "fallback" });
+    const safe = withCircuitBreaker(
+      { invoke },
+      {
+        maxInputToken: 100,
+        silent: true,
+        estimateInputTokens: () => 9_999,
+        onTrip,
+      },
+    );
+    await expect(safe.invoke({ input: "x" } as never)).resolves.toEqual({
+      output: "fallback",
+    });
+    expect(invoke).not.toHaveBeenCalled();
+    expect(onTrip).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "max_input_tokens" }),
+    );
+  });
+
   it("loop-killer trips on repeated prompts across calls", async () => {
     // Runnable that always sends the same prompt on every iteration.
     const loopingRunnable = {

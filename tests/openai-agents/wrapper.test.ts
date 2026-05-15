@@ -191,4 +191,55 @@ describe("withCircuitBreaker (@openai/agents wrapper)", () => {
       await expect(safe.run("b")).resolves.toEqual({ finalOutput: "done" });
     });
   });
+
+  describe("preflight (estimateInputTokens)", () => {
+    it("trips before the runner emits any agent_start event", async () => {
+      let agentStartCount = 0;
+      const trackingAgent = {
+        __turns: 5,
+        __tokensPerTurn: 100,
+        // counter: we expect zero because the wrapper aborts before run() begins.
+        get __agentStartCount() {
+          return agentStartCount;
+        },
+      };
+      const safe = withCircuitBreaker(
+        makeAgent(trackingAgent),
+        {
+          maxInputToken: 100,
+          maxOutputToken: 100_000,
+          silent: true,
+          estimateInputTokens: (input) => {
+            return typeof input === "string" ? input.length : 0;
+          },
+        },
+      );
+      await expect(safe.run("x".repeat(101))).rejects.toMatchObject({
+        reason: "max_input_tokens",
+      });
+      expect(agentStartCount).toBe(0);
+    });
+
+    it("preflight routes through onTrip when provided", async () => {
+      const onTrip = vi
+        .fn()
+        .mockReturnValue({ finalOutput: "preflight-fallback" });
+      const safe = withCircuitBreaker(
+        makeAgent({ __turns: 5, __tokensPerTurn: 100 }),
+        {
+          maxInputToken: 50,
+          maxOutputToken: 100_000,
+          silent: true,
+          estimateInputTokens: () => 9_999,
+          onTrip,
+        },
+      );
+      await expect(safe.run("hello")).resolves.toEqual({
+        finalOutput: "preflight-fallback",
+      });
+      expect(onTrip).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: "max_input_tokens" }),
+      );
+    });
+  });
 });

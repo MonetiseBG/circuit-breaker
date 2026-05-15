@@ -3,9 +3,9 @@ import { createHash } from "node:crypto";
 import { CircuitBreakerError } from "./errors.js";
 import { defaultLogger } from "./logger.js";
 import type {
-  BudgetGuardConfig,
   CircuitBreakerEvent,
   CircuitBreakerOptions,
+  CommonConfig,
   EventListener,
   Logger,
   LoopKillerConfig,
@@ -56,24 +56,22 @@ export class CircuitBreaker {
   private readonly stateCounts = new Map<string, number>();
 
   constructor(opts: CircuitBreakerOptions = {}) {
-    const mode: Mode = opts.mode ?? "budget-guard";
-    this.mode = mode;
+    assertValidMode(opts);
+    this.mode = opts.mode ?? "budget-guard";
 
-    if (mode === "budget-guard") {
-      const cfg = opts as BudgetGuardConfig & CircuitBreakerOptions;
-      const maxIn = cfg.maxInputToken ?? DEFAULT_MAX_INPUT_TOKEN;
-      const maxOut = cfg.maxOutputToken ?? DEFAULT_MAX_OUTPUT_TOKEN;
+    if (isLoopKillerOptions(opts)) {
+      const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
+      assertPositiveInteger(maxRetries, "maxRetries");
+      this.maxRetries = maxRetries;
+      this.detectRepeatedState =
+        opts.detectRepeatedState ?? DEFAULT_DETECT_REPEATED_STATE;
+    } else {
+      const maxIn = opts.maxInputToken ?? DEFAULT_MAX_INPUT_TOKEN;
+      const maxOut = opts.maxOutputToken ?? DEFAULT_MAX_OUTPUT_TOKEN;
       assertPositiveInteger(maxIn, "maxInputToken");
       assertPositiveInteger(maxOut, "maxOutputToken");
       this.maxInputToken = maxIn;
       this.maxOutputToken = maxOut;
-    } else {
-      const cfg = opts as LoopKillerConfig & CircuitBreakerOptions;
-      const maxRetries = cfg.maxRetries ?? DEFAULT_MAX_RETRIES;
-      assertPositiveInteger(maxRetries, "maxRetries");
-      this.maxRetries = maxRetries;
-      this.detectRepeatedState =
-        cfg.detectRepeatedState ?? DEFAULT_DETECT_REPEATED_STATE;
     }
 
     this.silent = opts.silent ?? false;
@@ -150,6 +148,33 @@ export class CircuitBreaker {
     this.inputTokens = input;
     this.outputTokens = output;
     this.checkTokenLimit();
+  }
+
+  /**
+   * Trip *before* a provider call when the estimated input token count would
+   * overshoot `maxInputToken`. Use from adapters as a preflight check so an
+   * oversized initial prompt never reaches the provider. Pass a non-negative
+   * integer; this does not mutate `inputTokens` — provider-reported usage
+   * still accumulates afterwards via {@link addTokens} / {@link setTokenSnapshot}.
+   * No-op outside `budget-guard` mode or when the breaker has already tripped.
+   */
+  checkInputEstimate(estimatedInputTokens: number): void {
+    if (this.tripped) return;
+    if (this.mode !== "budget-guard") return;
+    if (this.maxInputToken === undefined) return;
+    if (
+      typeof estimatedInputTokens !== "number" ||
+      !Number.isFinite(estimatedInputTokens) ||
+      estimatedInputTokens < 0
+    ) {
+      throw new TypeError(
+        `estimatedInputTokens must be a non-negative finite number (received ${describe(estimatedInputTokens)})`,
+      );
+    }
+    if (estimatedInputTokens > this.maxInputToken) {
+      this.inputTokens = estimatedInputTokens;
+      this.trip("max_input_tokens");
+    }
   }
 
   private currentRetries(): number {
@@ -230,6 +255,24 @@ function hashState(input: string): string {
   return createHash("sha1").update(input).digest("hex");
 }
 
+function isMode(value: unknown): value is Mode {
+  return value === "budget-guard" || value === "loop-killer";
+}
+
+function assertValidMode(opts: CircuitBreakerOptions): void {
+  const mode = (opts as { mode?: unknown }).mode;
+  if (mode === undefined || isMode(mode)) return;
+  throw new TypeError(
+    `mode must be "budget-guard" or "loop-killer" (received ${describe(mode)})`,
+  );
+}
+
+function isLoopKillerOptions(
+  opts: CircuitBreakerOptions,
+): opts is LoopKillerConfig & CommonConfig {
+  return opts.mode === "loop-killer";
+}
+
 function assertPositiveInteger(value: number, name: string): void {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
     throw new TypeError(
@@ -244,5 +287,6 @@ function describe(value: unknown): string {
     if (!Number.isFinite(value)) return value > 0 ? "Infinity" : "-Infinity";
     return String(value);
   }
+  if (typeof value === "string") return `string: "${value}"`;
   return `${typeof value}: ${String(value)}`;
 }

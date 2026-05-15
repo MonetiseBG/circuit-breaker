@@ -58,6 +58,70 @@ describe("CircuitBreakerCallback (LangChain adapter)", () => {
       await cb.handleLLMEnd(usageMetadataLlmEnd(30, 15), "r1");
       expect(cb.metrics.tokens).toEqual({ input: 30, output: 15, total: 45 });
     });
+
+    it("ignores malformed token counts (string usage values)", async () => {
+      const cb = new CircuitBreakerCallback({
+        maxInputToken: 100,
+        maxOutputToken: 100,
+        silent: true,
+      });
+      const malformed = {
+        generations: [[]],
+        llmOutput: {
+          tokenUsage: {
+            promptTokens: "50",
+            completionTokens: "50",
+          },
+        },
+      } as unknown as LLMResult;
+      await cb.handleLLMEnd(malformed, "r1");
+      expect(cb.metrics.tokens).toEqual({ input: 0, output: 0, total: 0 });
+    });
+
+    it("ignores malformed token counts (NaN, Infinity, null)", async () => {
+      const cb = new CircuitBreakerCallback({
+        maxInputToken: 100,
+        maxOutputToken: 100,
+        silent: true,
+      });
+      const malformed = {
+        generations: [[]],
+        llmOutput: {
+          usage: {
+            input_tokens: Number.NaN,
+            output_tokens: Infinity,
+            prompt_tokens: null,
+          },
+        },
+      } as unknown as LLMResult;
+      await cb.handleLLMEnd(malformed, "r1");
+      expect(cb.metrics.tokens).toEqual({ input: 0, output: 0, total: 0 });
+    });
+
+    it("ignores non-object usage payloads", async () => {
+      const cb = new CircuitBreakerCallback({
+        maxInputToken: 100,
+        maxOutputToken: 100,
+        silent: true,
+      });
+      const malformed = {
+        generations: [[]],
+        llmOutput: { usage: "not an object" },
+      } as unknown as LLMResult;
+      await cb.handleLLMEnd(malformed, "r1");
+      expect(cb.metrics.tokens.total).toBe(0);
+    });
+
+    it("preflight estimator on callback trips before any LLM call", async () => {
+      const cb = new CircuitBreakerCallback({
+        maxInputToken: 100,
+        maxOutputToken: 100,
+        silent: true,
+      });
+      expect(() => cb.checkInputEstimate(150)).toThrow(
+        expect.objectContaining({ reason: "max_input_tokens" }),
+      );
+    });
   });
 
   describe("loop-killer mode", () => {

@@ -9,16 +9,18 @@ import { CircuitBreaker } from "../core/breaker.js";
 import { CircuitBreakerError } from "../core/errors.js";
 import type {
   CircuitBreakerOptions,
+  EstimateInputTokens,
   OnTrip,
   WrapperOptions,
 } from "../core/types.js";
 
 /**
  * Wrapper-specific options for the `@anthropic-ai/claude-agent-sdk` adapter.
- * No adapter-only fields beyond the generic {@link WrapperOptions}.
+ * The optional preflight `estimateInputTokens` receives the `QueryParams`
+ * passed to the wrapped function.
  */
 export type ClaudeAgentSdkWrapperOptions<TFallback = never> =
-  WrapperOptions<TFallback>;
+  WrapperOptions<TFallback, QueryParams>;
 
 /** The argument shape of the SDK's `query` function. */
 export interface QueryParams {
@@ -61,12 +63,11 @@ export function withCircuitBreaker<TFallback = never>(
   options?: ClaudeAgentSdkWrapperOptions<TFallback>,
 ): WrappedQuery<TFallback> {
   const onTrip = options?.onTrip;
-  const breakerOpts: CircuitBreakerOptions = options
-    ? stripOnTrip(options)
-    : {};
+  const breakerOpts: CircuitBreakerOptions = stripWrapperOnly(options);
+  const estimate = pickEstimator(options);
 
   return function wrappedQuery(params: QueryParams) {
-    return runWithBreaker(query, params, breakerOpts, onTrip);
+    return runWithBreaker(query, params, breakerOpts, onTrip, estimate);
   };
 }
 
@@ -75,8 +76,27 @@ async function* runWithBreaker<TFallback>(
   params: QueryParams,
   breakerOpts: CircuitBreakerOptions,
   onTrip: OnTrip<TFallback> | undefined,
+  estimate: EstimateInputTokens<QueryParams> | undefined,
 ): AsyncGenerator<SDKMessage | TFallback, void> {
   const breaker = new CircuitBreaker(breakerOpts);
+
+  if (estimate) {
+    try {
+      const estimated = estimate(params);
+      if (typeof estimated === "number") {
+        breaker.checkInputEstimate(estimated);
+      }
+    } catch (err) {
+      if (err instanceof CircuitBreakerError) {
+        if (onTrip) {
+          yield await onTrip(err.toContext());
+          return;
+        }
+        throw err;
+      }
+      throw err;
+    }
+  }
 
   const controller = new AbortController();
   const userController = params.options?.abortController;
@@ -153,9 +173,24 @@ function summariseAssistant(message: SDKAssistantMessage): string | undefined {
   }
 }
 
-function stripOnTrip<R>(opts: WrapperOptions<R>): CircuitBreakerOptions {
-  const { onTrip: _onTrip, ...rest } = opts as WrapperOptions<R> & {
+function stripWrapperOnly<R>(
+  opts: ClaudeAgentSdkWrapperOptions<R> | undefined,
+): CircuitBreakerOptions {
+  if (!opts) return {};
+  const {
+    onTrip: _onTrip,
+    estimateInputTokens: _estimate,
+    ...rest
+  } = opts as ClaudeAgentSdkWrapperOptions<R> & {
     onTrip?: unknown;
+    estimateInputTokens?: unknown;
   };
   return rest as CircuitBreakerOptions;
+}
+
+function pickEstimator<R>(
+  opts: ClaudeAgentSdkWrapperOptions<R> | undefined,
+): EstimateInputTokens<QueryParams> | undefined {
+  if (!opts || opts.mode === "loop-killer") return undefined;
+  return opts.estimateInputTokens;
 }

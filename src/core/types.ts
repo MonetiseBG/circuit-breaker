@@ -18,12 +18,25 @@ export interface Metrics {
   tokens: TokenMetrics;
 }
 
-export interface BudgetGuardConfig {
+/**
+ * Optional preflight estimator. Adapters call this with the raw input the user
+ * is about to send and trip the breaker before the provider call if the
+ * estimate exceeds `maxInputToken`. Return `undefined` to skip the check (e.g.
+ * the input shape is unfamiliar). The package does not bundle a tokenizer:
+ * supply your own via `js-tiktoken`, `tiktoken`, or a provider SDK.
+ */
+export type EstimateInputTokens<TInput = unknown> = (
+  input: TInput,
+) => number | undefined;
+
+export interface BudgetGuardConfig<TInput = unknown> {
   mode?: "budget-guard";
   /** Maximum aggregate input tokens. Default: 10_000. */
   maxInputToken?: number;
   /** Maximum aggregate output tokens. Default: 10_000. */
   maxOutputToken?: number;
+  /** Optional preflight estimator; see {@link EstimateInputTokens}. */
+  estimateInputTokens?: EstimateInputTokens<TInput>;
 }
 
 export interface LoopKillerConfig {
@@ -35,7 +48,9 @@ export interface LoopKillerConfig {
   detectRepeatedState?: boolean;
 }
 
-export type ModeConfig = BudgetGuardConfig | LoopKillerConfig;
+export type ModeConfig<TInput = unknown> =
+  | BudgetGuardConfig<TInput>
+  | LoopKillerConfig;
 
 export type CircuitBreakerEvent =
   | { type: "retry"; retries: number }
@@ -53,7 +68,8 @@ export interface CommonConfig {
   onEvent?: EventListener;
 }
 
-export type CircuitBreakerOptions = ModeConfig & CommonConfig;
+export type CircuitBreakerOptions<TInput = unknown> = ModeConfig<TInput> &
+  CommonConfig;
 
 export interface ResolvedLimits {
   mode: Mode;
@@ -82,7 +98,8 @@ export interface TripContext {
 
 export type OnTrip<R> = (context: TripContext) => R | Promise<R>;
 
-export type WrapperOptions<R = never> = CircuitBreakerOptions & {
-  /** Suppress the throw and use this return value instead. */
-  onTrip?: OnTrip<R>;
-};
+export type WrapperOptions<R = never, TInput = unknown> =
+  CircuitBreakerOptions<TInput> & {
+    /** Suppress the throw and use this return value instead. */
+    onTrip?: OnTrip<R>;
+  };

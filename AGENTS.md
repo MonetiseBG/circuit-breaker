@@ -172,14 +172,18 @@ from the framework.
 Two workflows under `.github/workflows/`:
 
 - **`ci.yml`** — runs on every push (any branch) and every PR targeting
-  `develop` or `main`. Matrix: Node 20 and 22. Steps: `npm ci`,
-  `npm run typecheck`, `npm test`, `npm run build`. Concurrent runs on the
-  same ref cancel each other.
-- **`release.yml`** — runs on push of tags matching `v*.*.*`. Verifies the
-  tag is reachable from `main` and that the tag version matches
-  `package.json`, then runs the same gates as CI and finally
-  `npm publish --access public --provenance`. Provenance requires
-  `id-token: write` and a public repo.
+  `develop` or `main`. Matrix: Node 22 (Maintenance LTS) and Node 24
+  (Active LTS). Steps: `npm ci`, `npm run typecheck`, `npm test`,
+  `npm run build`. Concurrent runs on the same ref cancel each other.
+  Third-party actions are pinned to commit SHAs with a version-comment
+  trailer; tokens have least-privilege `permissions:` blocks.
+- **`release.yml`** — runs on push of tags matching `v*.*.*`. Publishes on
+  Node 24. Verifies the tag is reachable from `main` and that the tag
+  version matches `package.json`, then runs the same gates as CI and
+  finally `npm publish --access public --provenance`. Provenance requires
+  `id-token: write` and a public repo. The workflow currently keeps the
+  `NPM_TOKEN` secret as a fallback; migrating to npm Trusted Publishing
+  (OIDC) requires npm-side setup before the token can be removed.
 
 Required repository secret: **`NPM_TOKEN`** — an npm automation token with
 publish rights for the `@monetisebg` scope. Set under

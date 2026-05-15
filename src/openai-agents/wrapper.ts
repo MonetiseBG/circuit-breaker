@@ -10,18 +10,25 @@ import type {
 
 import { CircuitBreaker } from "../core/breaker.js";
 import { CircuitBreakerError } from "../core/errors.js";
-import type { CircuitBreakerOptions, WrapperOptions } from "../core/types.js";
+import type {
+  CircuitBreakerOptions,
+  EstimateInputTokens,
+  WrapperOptions,
+} from "../core/types.js";
 
 /**
  * Wrapper-specific options for the @openai/agents adapter. Extends the
  * generic {@link WrapperOptions} with `runConfig`, forwarded to the internal
  * Runner so callers can plug in their own model provider, tracing, etc.
  */
-export type OpenAIAgentsWrapperOptions<TFallback = never> =
-  WrapperOptions<TFallback> & {
-    /** Optional config forwarded to `new Runner(...)` for each invocation. */
-    runConfig?: Partial<RunConfig>;
-  };
+export type OpenAIAgentsWrapperOptions<
+  TFallback = never,
+  TAgent extends Agent<any, any> = Agent<any, any>,
+  TContext = undefined,
+> = WrapperOptions<TFallback, RunInput<TContext, TAgent>> & {
+  /** Optional config forwarded to `new Runner(...)` for each invocation. */
+  runConfig?: Partial<RunConfig>;
+};
 
 type RunInput<TContext, TAgent extends Agent<any, any>> =
   | string
@@ -60,13 +67,12 @@ export function withCircuitBreaker<
   TFallback = never,
 >(
   agent: TAgent,
-  options?: OpenAIAgentsWrapperOptions<TFallback>,
+  options?: OpenAIAgentsWrapperOptions<TFallback, TAgent>,
 ): WrappedAgent<TAgent, TFallback> {
   const onTrip = options?.onTrip;
   const runConfig = options?.runConfig;
-  const breakerOpts: CircuitBreakerOptions = options
-    ? stripWrapperOnly(options)
-    : {};
+  const breakerOpts: CircuitBreakerOptions = stripWrapperOnly(options);
+  const estimate = pickEstimator(options);
 
   return {
     async run<TContext = undefined>(
@@ -103,6 +109,23 @@ export function withCircuitBreaker<
         }
       };
 
+      if (estimate) {
+        try {
+          const estimated = estimate(
+            input as RunInput<TContext, TAgent>,
+          );
+          if (typeof estimated === "number") {
+            breaker.checkInputEstimate(estimated);
+          }
+        } catch (err) {
+          if (err instanceof CircuitBreakerError) {
+            if (onTrip) return await onTrip(err.toContext());
+            throw err;
+          }
+          throw err;
+        }
+      }
+
       runner.on("agent_start", (context, _agent, turnInput) => {
         guard(() => breaker.recordIteration(summariseTurnInput(turnInput)));
         guard(() =>
@@ -137,15 +160,30 @@ export function withCircuitBreaker<
   };
 }
 
-function stripWrapperOnly<R>(
-  opts: OpenAIAgentsWrapperOptions<R>,
+function stripWrapperOnly<R, TAgent extends Agent<any, any>>(
+  opts: OpenAIAgentsWrapperOptions<R, TAgent> | undefined,
 ): CircuitBreakerOptions {
-  const { onTrip: _onTrip, runConfig: _runConfig, ...rest } =
-    opts as OpenAIAgentsWrapperOptions<R> & {
-      onTrip?: unknown;
-      runConfig?: unknown;
-    };
+  if (!opts) return {};
+  const {
+    onTrip: _onTrip,
+    runConfig: _runConfig,
+    estimateInputTokens: _estimate,
+    ...rest
+  } = opts as OpenAIAgentsWrapperOptions<R, TAgent> & {
+    onTrip?: unknown;
+    runConfig?: unknown;
+    estimateInputTokens?: unknown;
+  };
   return rest as CircuitBreakerOptions;
+}
+
+function pickEstimator<R, TAgent extends Agent<any, any>>(
+  opts: OpenAIAgentsWrapperOptions<R, TAgent> | undefined,
+): EstimateInputTokens<RunInput<any, TAgent>> | undefined {
+  if (!opts || opts.mode === "loop-killer") return undefined;
+  return opts.estimateInputTokens as
+    | EstimateInputTokens<RunInput<any, TAgent>>
+    | undefined;
 }
 
 function summariseTurnInput(turnInput: AgentInputItem[] | undefined): string | undefined {
