@@ -257,9 +257,24 @@ All numeric options are validated at construction; passing `0`, a negative,
 `NaN`, `Infinity`, or a non-integer throws a `TypeError`.
 
 ## Contributing
-c
-See [`AGENTS.md`](./AGENTS.md) for the project layout, build/test commands,
-and the recipe for adding a new framework adapter.
+
+#### 🤝 Our Philosophy & How You Can Help
+
+We built Circuit Breaker to solve the immediate, visceral pain of runaway agent costs and infinite loops. However, we know that every execution environment is unique, and **we do not have all the answers.** 
+
+Right now, we are intentionally keeping the API minimal with core modes like `budget-guard` and `loop-killer`. We believe that the best systems are discovered through real user friction, not designed in a vacuum. Because of this, our roadmap is entirely driven by how you use — or fight — this tool in the wild.
+
+**We actively want to hear from you, especially if:**
+* **It *almost* fits:** Our default modes are 80% right for you, but you need one specific tweak or condition to make it perfect.
+* **You are building workarounds:** You find yourself writing custom scripts or wrapping our API to force it to do what you need.
+* **You have diverging use cases:** Your industry requires vastly different behavior (e.g., ultra-strict trading apps vs. loose research agents) and our defaults are breaking.
+
+When you stop asking *"what does this do?"* and start asking *"can I change how it works?"*, that is our signal to unlock more programmable control for the community. 
+
+Please open an issue, share your GitHub gists, or reach out to us directly. Your edge cases are our roadmap! 
+
+See [`AGENTS.md`](./AGENTS.md) for the project layout, build/test commands, and the recipe for adding a new framework adapter.
+
 
 ## License
 
