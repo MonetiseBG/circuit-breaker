@@ -181,13 +181,16 @@ Two workflows under `.github/workflows/`:
   Node 24. Verifies the tag is reachable from `main` and that the tag
   version matches `package.json`, then runs the same gates as CI and
   finally `npm publish --access public --provenance`. Provenance requires
-  `id-token: write` and a public repo. The workflow currently keeps the
-  `NPM_TOKEN` secret as a fallback; migrating to npm Trusted Publishing
-  (OIDC) requires npm-side setup before the token can be removed.
+  `id-token: write` (already set in the workflow) and authenticates against
+  npm via OIDC.
 
-Required repository secret: **`NPM_TOKEN`** — an npm automation token with
-publish rights for the `@monetisebg` scope. Set under
-*GitHub → Settings → Secrets and variables → Actions*.
+Authentication: the workflow uses **npm Trusted Publishing** — there is no
+long-lived `NPM_TOKEN` to manage. The trusted publisher must be configured
+once on the package's npm settings page (Publisher: GitHub Actions, repo
+`MonetiseBG/circuit-breaker`, workflow `release.yml`). npm has no
+"pending publisher" support, so the very first publish has to be done
+manually (`npm publish --access public`, without `--provenance`); from
+the second release onwards the workflow handles it via OIDC.
 
 ---
 

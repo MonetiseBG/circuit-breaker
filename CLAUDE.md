@@ -33,19 +33,18 @@ When the user explicitly asks for a commit:
 - **Do not add a `Co-Authored-By: Claude …` trailer.** Commits should be
   attributed solely to the human committer.
 - **Use whatever identity git resolves on its own.** Do not pass
-  `-c user.name=…` / `-c user.email=…` overrides. This directory inherits
-  identity from `/Users/kamil/Projekty/dna/.gitconfig` via an `includeIf`
-  rule in `~/.gitconfig`; that is the intended author. Verify with
+  `-c user.name=…` / `-c user.email=…` overrides. Verify with
   `git config user.email` if you're unsure.
-- Stage files explicitly by path. Never `git add -A`. `node_modules/`,
-  `dist/`, `.idea/`, and `.claude/settings.local.json` are gitignored — leave
-  them that way.
+- Stage files explicitly by path. Never `git add -A`. The gitignored
+  directories (`node_modules/`, `dist/`, IDE configs, local Claude
+  settings) should stay out of commits.
 - Never modify global git config.
 
 ### Pushing
 
-- Default branch is `develop`. Don't push to `main` (it doesn't exist yet
-  and is reserved for releases).
+- Default branch is `develop`. `main` is reserved for releases — the
+  release workflow verifies that the published tag is reachable from
+  `main`.
 - Don't force-push without explicit user instruction.
 - Don't use `--no-verify` to bypass hooks.
 
