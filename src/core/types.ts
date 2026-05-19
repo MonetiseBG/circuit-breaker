@@ -29,9 +29,18 @@ export type EstimateInputTokens<TInput = unknown> = (
   input: TInput,
 ) => number | undefined;
 
-export type CircuitBreakerEvent =
-  | { type: "retry"; retries: number }
-  | { type: "stop"; reason: StopReason; saved: number };
+export interface RetryEvent {
+  type: "retry";
+  retries: number;
+}
+
+export interface StopEvent {
+  type: "stop";
+  reason: StopReason;
+  saved: number;
+}
+
+export type CircuitBreakerEvent = RetryEvent | StopEvent;
 
 export type Logger = (message: string, context: TripContext) => void;
 export type EventListener = (event: CircuitBreakerEvent) => void;

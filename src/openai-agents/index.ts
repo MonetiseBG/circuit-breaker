@@ -15,6 +15,8 @@ export type {
   ModeConfig,
   OnTrip,
   ResolvedLimits,
+  RetryEvent,
+  StopEvent,
   StopReason,
   TokenMetrics,
   TripContext,
