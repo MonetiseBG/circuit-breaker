@@ -128,7 +128,9 @@ export class CircuitBreaker {
       return;
     }
 
-    if (this.maxRetries !== undefined && this.iterations - 1 > this.maxRetries) {
+    const retries = this.iterations - 1;
+    if (retries >= 1) this.emit({ type: "retry", retries });
+    if (this.maxRetries !== undefined && retries > this.maxRetries) {
       this.trip("max_retries");
     }
   }

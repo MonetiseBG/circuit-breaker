@@ -116,6 +116,24 @@ describe("CircuitBreaker (core)", () => {
       );
     });
 
+    it("with detectRepeatedState=false emits retry events on each iteration past the first", () => {
+      const events: CircuitBreakerEvent[] = [];
+      const b = new CircuitBreaker({
+        mode: "loop-killer",
+        maxRetries: 5,
+        detectRepeatedState: false,
+        silent: true,
+        onEvent: (e) => events.push(e),
+      });
+      b.recordIteration();
+      b.recordIteration();
+      b.recordIteration();
+      expect(events.filter((e) => e.type === "retry")).toEqual([
+        { type: "retry", retries: 1 },
+        { type: "retry", retries: 2 },
+      ]);
+    });
+
     it("retry event reports per-state retry depth", () => {
       const events: CircuitBreakerEvent[] = [];
       const b = new CircuitBreaker({
