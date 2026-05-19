@@ -5,14 +5,13 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 
-import { CircuitBreaker } from "../core/breaker.js";
-import { CircuitBreakerError } from "../core/errors.js";
+import { CircuitBreaker, CircuitBreakerError } from "../core/index.js";
 import type {
   CircuitBreakerOptions,
   EstimateInputTokens,
   OnTrip,
   WrapperOptions,
-} from "../core/types.js";
+} from "../core/index.js";
 
 /**
  * Wrapper-specific options for the `@anthropic-ai/claude-agent-sdk` adapter.

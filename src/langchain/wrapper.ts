@@ -1,7 +1,7 @@
 import type { RunnableConfig } from "@langchain/core/runnables";
 
-import { CircuitBreakerError } from "../core/errors.js";
-import type { CircuitBreakerOptions, WrapperOptions } from "../core/types.js";
+import { CircuitBreakerError } from "../core/index.js";
+import type { CircuitBreakerOptions, WrapperOptions } from "../core/index.js";
 import { CircuitBreakerCallback } from "./callback.js";
 
 /**

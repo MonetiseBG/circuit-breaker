@@ -1,8 +1,8 @@
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import type { LLMResult } from "@langchain/core/outputs";
 
-import { CircuitBreaker } from "../core/breaker.js";
-import type { CircuitBreakerOptions, Metrics } from "../core/types.js";
+import { CircuitBreaker } from "../core/index.js";
+import type { CircuitBreakerOptions, Metrics } from "../core/index.js";
 import { extractTokens } from "./tokens.js";
 
 /**

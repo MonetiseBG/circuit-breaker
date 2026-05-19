@@ -2,7 +2,7 @@ export { CircuitBreakerCallback } from "./callback.js";
 export { withCircuitBreaker } from "./wrapper.js";
 export type { RunnableLike } from "./wrapper.js";
 // Re-export core symbols that users commonly need next to the adapter.
-export { CircuitBreakerError } from "../core/errors.js";
+export { CircuitBreakerError } from "../core/index.js";
 export type {
   BudgetGuardConfig,
   CircuitBreakerEvent,
@@ -22,4 +22,4 @@ export type {
   TokenMetrics,
   TripContext,
   WrapperOptions,
-} from "../core/types.js";
+} from "../core/index.js";
