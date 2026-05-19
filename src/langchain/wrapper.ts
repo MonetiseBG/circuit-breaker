@@ -1,3 +1,5 @@
+import type { RunnableConfig } from "@langchain/core/runnables";
+
 import { CircuitBreakerError } from "../core/errors.js";
 import type { CircuitBreakerOptions, WrapperOptions } from "../core/types.js";
 import { CircuitBreakerCallback } from "./callback.js";
@@ -6,17 +8,19 @@ import { CircuitBreakerCallback } from "./callback.js";
  * Minimal structural type for a LangChain Runnable. We only depend on the
  * `invoke` shape so we don't bind to a specific LangChain version.
  */
-interface RunnableLike<TInput, TOutput> {
-  invoke(input: TInput, config?: InvokeConfig): Promise<TOutput>;
+export interface RunnableLike<TInput, TOutput> {
+  invoke(input: TInput, config?: RunnableConfig): Promise<TOutput>;
 }
 
-interface InvokeConfig {
-  callbacks?: unknown[];
-  [key: string]: unknown;
-}
-
-export interface WrappedRunnable<TInput, TOutput> {
-  invoke(input: TInput, config?: InvokeConfig): Promise<TOutput>;
+function toBreakerOpts<R, TInput>(
+  opts: WrapperOptions<R, TInput>,
+): CircuitBreakerOptions {
+  if (opts.mode === "loop-killer") {
+    const { onTrip: _onTrip, ...rest } = opts;
+    return rest;
+  }
+  const { onTrip: _onTrip, estimateInputTokens: _est, ...rest } = opts;
+  return rest;
 }
 
 /**
@@ -32,21 +36,10 @@ export interface WrappedRunnable<TInput, TOutput> {
  * input before calling the runnable; an oversized prompt trips the breaker
  * preflight so the runnable is never invoked.
  */
-function toBreakerOpts<R, TInput>(
-  opts: WrapperOptions<R, TInput>,
-): CircuitBreakerOptions {
-  if (opts.mode === "loop-killer") {
-    const { onTrip: _onTrip, ...rest } = opts;
-    return rest;
-  }
-  const { onTrip: _onTrip, estimateInputTokens: _est, ...rest } = opts;
-  return rest;
-}
-
 export function withCircuitBreaker<TInput, TOutput, TFallback = never>(
   runnable: RunnableLike<TInput, TOutput>,
   options?: WrapperOptions<TFallback, TInput>,
-): WrappedRunnable<TInput, TOutput | TFallback> {
+): RunnableLike<TInput, TOutput | TFallback> {
   const opts = options ?? {};
   const onTrip = opts.onTrip;
   const estimate = opts.mode === "loop-killer" ? undefined : opts.estimateInputTokens;
@@ -55,8 +48,11 @@ export function withCircuitBreaker<TInput, TOutput, TFallback = never>(
   return {
     async invoke(input, config) {
       const breaker = new CircuitBreakerCallback(callbackOpts);
-      const existing = (config?.callbacks as unknown[] | undefined) ?? [];
-      const callbacks = [...existing, breaker];
+      const existing = config?.callbacks ?? [];
+      const callbacks = [
+        ...(Array.isArray(existing) ? existing : [existing]),
+        breaker,
+      ];
       try {
         if (estimate) {
           const estimated = estimate(input);
