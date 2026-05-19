@@ -24,6 +24,12 @@ limit, and (optionally) refuses an oversized prompt before it is even sent.
 Shipped adapters: **LangChain.js**, **OpenAI Agents SDK**, **Claude Agent
 SDK**. The core is framework-agnostic; rolling your own adapter is a few lines.
 
+
+[Watch the 1-minute overview](https://www.youtube.com/watch?v=nhRmZBkjeFU) — see how Circuit Breaker stops a runaway agent in real time.
+  
+[![Circuit Breaker — 1-min explainer](https://img.youtube.com/vi/nhRmZBkjeFU/1.jpg)](https://www.youtube.com/watch?v=nhRmZBkjeFU)
+
+
 ## Install
 
 Requires **Node ≥ 22** (the breaker uses `node:crypto`).
