@@ -9,22 +9,22 @@ import {
 describe("CircuitBreaker (core)", () => {
   describe("budget-guard mode", () => {
     it("is the default mode", () => {
-      const b = new CircuitBreaker();
-      expect(b.mode).toBe("budget-guard");
+      const breaker = new CircuitBreaker();
+      expect(breaker.mode).toBe("budget-guard");
     });
 
     it("applies 10k/10k defaults when no limits given", () => {
-      const b = new CircuitBreaker({ silent: true });
-      b.addTokens(5_000, 5_000);
-      expect(() => b.addTokens(5_001, 0)).toThrow(CircuitBreakerError);
-      expect(b.metrics.tokens.total).toBe(15_001);
+      const breaker = new CircuitBreaker({ silent: true });
+      breaker.addTokens(5_000, 5_000);
+      expect(() => breaker.addTokens(5_001, 0)).toThrow(CircuitBreakerError);
+      expect(breaker.metrics.tokens.total).toBe(15_001);
     });
 
     it("trips on max_input_tokens (input bucket only)", () => {
-      const b = new CircuitBreaker({ maxInputToken: 100, maxOutputToken: 100, silent: true });
-      b.addTokens(60, 60);
+      const breaker = new CircuitBreaker({ maxInputToken: 100, maxOutputToken: 100, silent: true });
+      breaker.addTokens(60, 60);
       try {
-        b.addTokens(50, 0);
+        breaker.addTokens(50, 0);
         throw new Error("unreachable");
       } catch (err) {
         expect(err).toBeInstanceOf(CircuitBreakerError);
@@ -37,26 +37,26 @@ describe("CircuitBreaker (core)", () => {
     });
 
     it("trips on max_output_tokens (output bucket only)", () => {
-      const b = new CircuitBreaker({ maxInputToken: 100, maxOutputToken: 50, silent: true });
-      b.addTokens(10, 30);
-      expect(() => b.addTokens(10, 30)).toThrow(
+      const breaker = new CircuitBreaker({ maxInputToken: 100, maxOutputToken: 50, silent: true });
+      breaker.addTokens(10, 30);
+      expect(() => breaker.addTokens(10, 30)).toThrow(
         expect.objectContaining({ reason: "max_output_tokens" }),
       );
     });
 
     it("does not trip on iteration count", () => {
-      const b = new CircuitBreaker({ maxInputToken: 1_000_000, maxOutputToken: 1_000_000, silent: true });
-      for (let i = 0; i < 100; i++) b.recordIteration("k");
-      expect(b.isTripped).toBe(false);
-      expect(b.metrics.iterations).toBe(100);
-      expect(b.metrics.retries).toBe(0);
+      const breaker = new CircuitBreaker({ maxInputToken: 1_000_000, maxOutputToken: 1_000_000, silent: true });
+      for (let i = 0; i < 100; i++) breaker.recordIteration("k");
+      expect(breaker.isTripped).toBe(false);
+      expect(breaker.metrics.iterations).toBe(100);
+      expect(breaker.metrics.retries).toBe(0);
     });
 
     it("setTokenSnapshot trips on absolute totals", () => {
-      const b = new CircuitBreaker({ maxInputToken: 100, maxOutputToken: 100, silent: true });
-      b.setTokenSnapshot(40, 30);
-      expect(b.metrics.tokens.total).toBe(70);
-      expect(() => b.setTokenSnapshot(120, 30)).toThrow(
+      const breaker = new CircuitBreaker({ maxInputToken: 100, maxOutputToken: 100, silent: true });
+      breaker.setTokenSnapshot(40, 30);
+      expect(breaker.metrics.tokens.total).toBe(70);
+      expect(() => breaker.setTokenSnapshot(120, 30)).toThrow(
         expect.objectContaining({ reason: "max_input_tokens" }),
       );
     });
@@ -65,16 +65,16 @@ describe("CircuitBreaker (core)", () => {
   describe("loop-killer mode", () => {
     it("with detectRepeatedState (default) trips when same state recurs past maxRetries", () => {
       const events: CircuitBreakerEvent[] = [];
-      const b = new CircuitBreaker({
+      const breaker = new CircuitBreaker({
         mode: "loop-killer",
         maxRetries: 2,
         silent: true,
         onEvent: (e) => events.push(e),
       });
-      b.recordIteration("same");
-      b.recordIteration("same");
-      b.recordIteration("same");
-      expect(() => b.recordIteration("same")).toThrow(
+      breaker.recordIteration("same");
+      breaker.recordIteration("same");
+      breaker.recordIteration("same");
+      expect(() => breaker.recordIteration("same")).toThrow(
         expect.objectContaining({ reason: "repeated_state" }),
       );
       expect(events.filter((e) => e.type === "retry")).toEqual([
@@ -89,45 +89,45 @@ describe("CircuitBreaker (core)", () => {
     });
 
     it("does not trip when each state is distinct", () => {
-      const b = new CircuitBreaker({ mode: "loop-killer", maxRetries: 1, silent: true });
-      for (let i = 0; i < 20; i++) b.recordIteration(`state-${i}`);
-      expect(b.isTripped).toBe(false);
-      expect(b.metrics.retries).toBe(0);
+      const breaker = new CircuitBreaker({ mode: "loop-killer", maxRetries: 1, silent: true });
+      for (let i = 0; i < 20; i++) breaker.recordIteration(`state-${i}`);
+      expect(breaker.isTripped).toBe(false);
+      expect(breaker.metrics.retries).toBe(0);
     });
 
     it("does not record state when stateKey is undefined (detection on)", () => {
-      const b = new CircuitBreaker({ mode: "loop-killer", maxRetries: 1, silent: true });
-      for (let i = 0; i < 20; i++) b.recordIteration();
-      expect(b.isTripped).toBe(false);
+      const breaker = new CircuitBreaker({ mode: "loop-killer", maxRetries: 1, silent: true });
+      for (let i = 0; i < 20; i++) breaker.recordIteration();
+      expect(breaker.isTripped).toBe(false);
     });
 
     it("with detectRepeatedState=false falls back to iteration cap", () => {
-      const b = new CircuitBreaker({
+      const breaker = new CircuitBreaker({
         mode: "loop-killer",
         maxRetries: 2,
         detectRepeatedState: false,
         silent: true,
       });
-      b.recordIteration();
-      b.recordIteration();
-      b.recordIteration();
-      expect(() => b.recordIteration()).toThrow(
+      breaker.recordIteration();
+      breaker.recordIteration();
+      breaker.recordIteration();
+      expect(() => breaker.recordIteration()).toThrow(
         expect.objectContaining({ reason: "max_retries" }),
       );
     });
 
     it("with detectRepeatedState=false emits retry events on each iteration past the first", () => {
       const events: CircuitBreakerEvent[] = [];
-      const b = new CircuitBreaker({
+      const breaker = new CircuitBreaker({
         mode: "loop-killer",
         maxRetries: 5,
         detectRepeatedState: false,
         silent: true,
         onEvent: (e) => events.push(e),
       });
-      b.recordIteration();
-      b.recordIteration();
-      b.recordIteration();
+      breaker.recordIteration();
+      breaker.recordIteration();
+      breaker.recordIteration();
       expect(events.filter((e) => e.type === "retry")).toEqual([
         { type: "retry", retries: 1 },
         { type: "retry", retries: 2 },
@@ -136,17 +136,17 @@ describe("CircuitBreaker (core)", () => {
 
     it("retry event reports per-state retry depth", () => {
       const events: CircuitBreakerEvent[] = [];
-      const b = new CircuitBreaker({
+      const breaker = new CircuitBreaker({
         mode: "loop-killer",
         maxRetries: 10,
         silent: true,
         onEvent: (e) => events.push(e),
       });
-      b.recordIteration("a");
-      b.recordIteration("b");
-      b.recordIteration("a");
-      b.recordIteration("a");
-      b.recordIteration("b");
+      breaker.recordIteration("a");
+      breaker.recordIteration("b");
+      breaker.recordIteration("a");
+      breaker.recordIteration("a");
+      breaker.recordIteration("b");
       expect(events).toEqual([
         { type: "retry", retries: 1 }, // a repeats
         { type: "retry", retries: 2 }, // a repeats again
@@ -155,25 +155,25 @@ describe("CircuitBreaker (core)", () => {
     });
 
     it("does not consume tokens or trip on token usage", () => {
-      const b = new CircuitBreaker({ mode: "loop-killer", maxRetries: 5, silent: true });
-      b.addTokens(1_000_000, 1_000_000);
-      expect(b.isTripped).toBe(false);
-      expect(b.metrics.tokens.total).toBe(2_000_000);
+      const breaker = new CircuitBreaker({ mode: "loop-killer", maxRetries: 5, silent: true });
+      breaker.addTokens(1_000_000, 1_000_000);
+      expect(breaker.isTripped).toBe(false);
+      expect(breaker.metrics.tokens.total).toBe(2_000_000);
     });
   });
 
   describe("lifecycle", () => {
     it("after trip, further records are no-ops (do not re-throw)", () => {
-      const b = new CircuitBreaker({ maxInputToken: 1, maxOutputToken: 1, silent: true });
-      expect(() => b.addTokens(2, 0)).toThrow();
-      expect(() => b.addTokens(2, 0)).not.toThrow();
-      expect(() => b.recordIteration()).not.toThrow();
+      const breaker = new CircuitBreaker({ maxInputToken: 1, maxOutputToken: 1, silent: true });
+      expect(() => breaker.addTokens(2, 0)).toThrow();
+      expect(() => breaker.addTokens(2, 0)).not.toThrow();
+      expect(() => breaker.recordIteration()).not.toThrow();
     });
 
     it("logs via default logger and is silenceable", () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const b = new CircuitBreaker({ maxInputToken: 10, maxOutputToken: 10 });
-      expect(() => b.addTokens(20, 0)).toThrow();
+      const breaker = new CircuitBreaker({ maxInputToken: 10, maxOutputToken: 10 });
+      expect(() => breaker.addTokens(20, 0)).toThrow();
       expect(warn).toHaveBeenCalledOnce();
       expect(warn.mock.calls[0]?.[0]).toMatch(/input token budget exceeded/);
       warn.mockRestore();
@@ -181,8 +181,8 @@ describe("CircuitBreaker (core)", () => {
 
     it("custom logger receives the full trip context", () => {
       const logger = vi.fn();
-      const b = new CircuitBreaker({ maxInputToken: 10, maxOutputToken: 10, logger });
-      expect(() => b.addTokens(20, 0)).toThrow();
+      const breaker = new CircuitBreaker({ maxInputToken: 10, maxOutputToken: 10, logger });
+      expect(() => breaker.addTokens(20, 0)).toThrow();
       expect(logger).toHaveBeenCalledWith(
         expect.stringContaining("input token budget"),
         expect.objectContaining({
@@ -198,48 +198,48 @@ describe("CircuitBreaker (core)", () => {
       const onEvent = vi.fn().mockImplementation(() => {
         throw new Error("listener boom");
       });
-      const b = new CircuitBreaker({ maxInputToken: 5, maxOutputToken: 5, silent: true, onEvent });
-      expect(() => b.addTokens(10, 0)).toThrow(CircuitBreakerError);
+      const breaker = new CircuitBreaker({ maxInputToken: 5, maxOutputToken: 5, silent: true, onEvent });
+      expect(() => breaker.addTokens(10, 0)).toThrow(CircuitBreakerError);
       expect(onEvent).toHaveBeenCalledTimes(1);
     });
 
     it("emits stop event with saved=limit-usage (signed)", () => {
       const events: CircuitBreakerEvent[] = [];
-      const b = new CircuitBreaker({
+      const breaker = new CircuitBreaker({
         maxInputToken: 100,
         maxOutputToken: 100,
         silent: true,
         onEvent: (e) => events.push(e),
       });
-      expect(() => b.addTokens(110, 50)).toThrow();
+      expect(() => breaker.addTokens(110, 50)).toThrow();
       expect(events).toEqual([
         { type: "stop", reason: "max_input_tokens", saved: 40 },
       ]);
     });
 
     it("reset() clears counters, state hashes, and untrips", () => {
-      const b = new CircuitBreaker({ mode: "loop-killer", maxRetries: 1, silent: true });
-      b.recordIteration("x");
-      b.recordIteration("x");
-      expect(() => b.recordIteration("x")).toThrow();
-      b.reset();
-      expect(b.isTripped).toBe(false);
-      expect(b.metrics).toEqual({
+      const breaker = new CircuitBreaker({ mode: "loop-killer", maxRetries: 1, silent: true });
+      breaker.recordIteration("x");
+      breaker.recordIteration("x");
+      expect(() => breaker.recordIteration("x")).toThrow();
+      breaker.reset();
+      expect(breaker.isTripped).toBe(false);
+      expect(breaker.metrics).toEqual({
         iterations: 0,
         retries: 0,
         tokens: { input: 0, output: 0, total: 0 },
       });
-      b.recordIteration("x");
-      b.recordIteration("x");
-      expect(b.metrics.retries).toBe(1);
+      breaker.recordIteration("x");
+      breaker.recordIteration("x");
+      expect(breaker.metrics.retries).toBe(1);
     });
 
     it("CircuitBreakerError carries reason, mode, metrics, limits, saved", () => {
-      const b = new CircuitBreaker({ mode: "loop-killer", maxRetries: 1, silent: true });
-      b.recordIteration("x");
-      b.recordIteration("x");
+      const breaker = new CircuitBreaker({ mode: "loop-killer", maxRetries: 1, silent: true });
+      breaker.recordIteration("x");
+      breaker.recordIteration("x");
       try {
-        b.recordIteration("x");
+        breaker.recordIteration("x");
         throw new Error("unreachable");
       } catch (err) {
         expect(err).toBeInstanceOf(CircuitBreakerError);
@@ -289,43 +289,43 @@ describe("CircuitBreaker (core)", () => {
 
   describe("checkInputEstimate (preflight)", () => {
     it("trips with max_input_tokens before any addTokens call", () => {
-      const b = new CircuitBreaker({
+      const breaker = new CircuitBreaker({
         maxInputToken: 100,
         maxOutputToken: 100,
         silent: true,
       });
-      expect(() => b.checkInputEstimate(150)).toThrow(
+      expect(() => breaker.checkInputEstimate(150)).toThrow(
         expect.objectContaining({ reason: "max_input_tokens" }),
       );
-      expect(b.isTripped).toBe(true);
+      expect(breaker.isTripped).toBe(true);
     });
 
     it("does not trip when estimate is within budget", () => {
-      const b = new CircuitBreaker({
+      const breaker = new CircuitBreaker({
         maxInputToken: 100,
         maxOutputToken: 100,
         silent: true,
       });
-      b.checkInputEstimate(99);
-      expect(b.isTripped).toBe(false);
-      expect(b.metrics.tokens.input).toBe(0);
+      breaker.checkInputEstimate(99);
+      expect(breaker.isTripped).toBe(false);
+      expect(breaker.metrics.tokens.input).toBe(0);
     });
 
     it("no-op when mode is loop-killer", () => {
-      const b = new CircuitBreaker({
+      const breaker = new CircuitBreaker({
         mode: "loop-killer",
         maxRetries: 1,
         silent: true,
       });
-      b.checkInputEstimate(1_000_000);
-      expect(b.isTripped).toBe(false);
+      breaker.checkInputEstimate(1_000_000);
+      expect(breaker.isTripped).toBe(false);
     });
 
     it("rejects invalid estimate values", () => {
-      const b = new CircuitBreaker({ silent: true });
-      expect(() => b.checkInputEstimate(-1)).toThrow(TypeError);
-      expect(() => b.checkInputEstimate(Number.NaN)).toThrow(TypeError);
-      expect(() => b.checkInputEstimate(Infinity)).toThrow(TypeError);
+      const breaker = new CircuitBreaker({ silent: true });
+      expect(() => breaker.checkInputEstimate(-1)).toThrow(TypeError);
+      expect(() => breaker.checkInputEstimate(Number.NaN)).toThrow(TypeError);
+      expect(() => breaker.checkInputEstimate(Infinity)).toThrow(TypeError);
     });
   });
 });
