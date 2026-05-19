@@ -26,12 +26,14 @@ SDK**. The core is framework-agnostic; rolling your own adapter is a few lines.
 
 ## Install
 
+Requires **Node ≥ 22** (the breaker uses `node:crypto`).
+
 ```bash
 npm install @monetisebg/circuit-breaker
-# plus the framework you use:
-npm install @langchain/core              # for the LangChain adapter
-npm install @openai/agents               # for the OpenAI Agents adapter
-npm install @anthropic-ai/claude-agent-sdk  # for the Claude Agent SDK adapter
+# plus the framework you use (minimum versions enforced via peerDependencies):
+npm install @langchain/core@^1.1.47              # for the LangChain adapter
+npm install @openai/agents@^0.11.0               # for the OpenAI Agents adapter
+npm install @anthropic-ai/claude-agent-sdk@^0.2  # for the Claude Agent SDK adapter
 ```
 
 ## Quick start (`budget-guard`, the default)
@@ -113,10 +115,10 @@ withCircuitBreaker(agent, {
 
 `CircuitBreakerEvent` shapes:
 
-| Event                                               | When                          | Modes        |
-| --------------------------------------------------- | ----------------------------- | ------------ |
-| `{ type: "retry"; retries: number }`                | The same state recurred       | loop-killer  |
-| `{ type: "stop"; reason: StopReason; saved: number }` | The breaker tripped          | both         |
+| Event                                                 | When                                              | Modes        |
+| ----------------------------------------------------- | ------------------------------------------------- | ------------ |
+| `{ type: "retry"; retries: number }`                  | A state recurred (`detectRepeatedState: true`) or each iteration past the first (`detectRepeatedState: false`) | loop-killer  |
+| `{ type: "stop"; reason: StopReason; saved: number }` | The breaker tripped                               | both         |
 
 `saved` is signed `limit - usage`: positive means headroom that won't be
 spent, negative means the call that pushed us over the limit still counted.
