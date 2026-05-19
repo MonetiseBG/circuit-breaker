@@ -8,7 +8,7 @@ import { extractTokens } from "./tokens.js";
 /**
  * LangChain callback handler that drives a {@link CircuitBreaker}. Attach via
  * `config.callbacks` on a Runnable invocation, or use
- * {@link ../langchain/wrapper#withCircuitBreaker} for the convenience wrapper.
+ * {@link withCircuitBreaker} for the convenience wrapper.
  *
  * For `loop-killer` mode the callback summarises each call (the last prompt or
  * last chat message) into a state key the breaker hashes for loop detection.

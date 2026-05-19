@@ -105,7 +105,9 @@ export interface TripContext {
   /**
    * Remaining headroom at trip time: `limit - usage` (signed).
    * - budget-guard: `(maxInputToken + maxOutputToken) - tokens.total`.
-   * - loop-killer:  `maxRetries - max(retries, iterations)`.
+   * - loop-killer:  `maxRetries - retries`, where `retries` is the
+   *   per-state recurrence depth (detection on) or `iterations - 1`
+   *   (detection off).
    *
    * Negative values mean we tripped after overshooting the limit (the call
    * that pushed us over still counts).

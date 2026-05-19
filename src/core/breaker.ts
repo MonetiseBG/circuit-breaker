@@ -50,7 +50,7 @@ export class CircuitBreaker {
   private iterations = 0;
   private inputTokens = 0;
   private outputTokens = 0;
-  private maxRetryDepth = 0;
+  private peakRetryDepth = 0;
   private tripped = false;
   private readonly stateCounts = new Map<string, number>();
 
@@ -98,7 +98,7 @@ export class CircuitBreaker {
     this.iterations = 0;
     this.inputTokens = 0;
     this.outputTokens = 0;
-    this.maxRetryDepth = 0;
+    this.peakRetryDepth = 0;
     this.tripped = false;
     this.stateCounts.clear();
   }
@@ -120,7 +120,7 @@ export class CircuitBreaker {
       const count = (this.stateCounts.get(hash) ?? 0) + 1;
       this.stateCounts.set(hash, count);
       const depth = count - 1;
-      if (depth > this.maxRetryDepth) this.maxRetryDepth = depth;
+      if (depth > this.peakRetryDepth) this.peakRetryDepth = depth;
       if (depth >= 1) this.emit({ type: "retry", retries: depth });
       if (this.maxRetries !== undefined && depth > this.maxRetries) {
         this.trip("repeated_state");
@@ -181,7 +181,7 @@ export class CircuitBreaker {
   private currentRetries(): number {
     if (this.mode !== "loop-killer") return 0;
     return this.detectRepeatedState
-      ? this.maxRetryDepth
+      ? this.peakRetryDepth
       : Math.max(0, this.iterations - 1);
   }
 
