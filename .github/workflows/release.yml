@@ -59,11 +59,5 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Migration path: enable npm Trusted Publishing for @monetisebg/circuit-breaker
-      # at https://www.npmjs.com/settings/.../trusted-publishers, then drop
-      # NODE_AUTH_TOKEN and the NPM_TOKEN secret. id-token: write above is
-      # already in place for OIDC.
       - name: Publish to npm
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
