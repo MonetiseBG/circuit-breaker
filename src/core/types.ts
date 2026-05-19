@@ -29,29 +29,6 @@ export type EstimateInputTokens<TInput = unknown> = (
   input: TInput,
 ) => number | undefined;
 
-export interface BudgetGuardConfig<TInput = unknown> {
-  mode?: "budget-guard";
-  /** Maximum aggregate input tokens. Default: 10_000. */
-  maxInputToken?: number;
-  /** Maximum aggregate output tokens. Default: 10_000. */
-  maxOutputToken?: number;
-  /** Optional preflight estimator; see {@link EstimateInputTokens}. */
-  estimateInputTokens?: EstimateInputTokens<TInput>;
-}
-
-export interface LoopKillerConfig {
-  mode: "loop-killer";
-  /** Max times any single state may repeat (or, with detectRepeatedState=false,
-   *  max raw iterations) before tripping. Default: 3. */
-  maxRetries?: number;
-  /** Hash each step's state to detect loops. Default: true. */
-  detectRepeatedState?: boolean;
-}
-
-export type ModeConfig<TInput = unknown> =
-  | BudgetGuardConfig<TInput>
-  | LoopKillerConfig;
-
 export type CircuitBreakerEvent =
   | { type: "retry"; retries: number }
   | { type: "stop"; reason: StopReason; saved: number };
@@ -68,8 +45,49 @@ export interface CommonConfig {
   onEvent?: EventListener;
 }
 
-export type CircuitBreakerOptions<TInput = unknown> = ModeConfig<TInput> &
-  CommonConfig;
+export interface BudgetGuardConfig<TInput = unknown> extends CommonConfig {
+  mode: "budget-guard";
+  /** Maximum aggregate input tokens. Default: 10_000. */
+  maxInputToken?: number;
+  /** Maximum aggregate output tokens. Default: 10_000. */
+  maxOutputToken?: number;
+  /** Optional preflight estimator; see {@link EstimateInputTokens}. */
+  estimateInputTokens?: EstimateInputTokens<TInput>;
+}
+
+export interface LoopKillerConfig extends CommonConfig {
+  mode: "loop-killer";
+  /** Max times any single state may repeat (or, with detectRepeatedState=false,
+   *  max raw iterations) before tripping. Default: 3. */
+  maxRetries?: number;
+  /** Hash each step's state to detect loops. Default: true. */
+  detectRepeatedState?: boolean;
+}
+
+/**
+ * `mode` omitted — applies budget-guard defaults. Same fields as
+ * {@link BudgetGuardConfig} but with an absent discriminator. Modelled as a
+ * separate arm so `{ maxRetries: 5 }` (no mode) is a type error rather than
+ * silently dropped.
+ */
+export interface DefaultModeConfig<TInput = unknown> extends CommonConfig {
+  mode?: undefined;
+  /** Maximum aggregate input tokens. Default: 10_000. */
+  maxInputToken?: number;
+  /** Maximum aggregate output tokens. Default: 10_000. */
+  maxOutputToken?: number;
+  /** Optional preflight estimator; see {@link EstimateInputTokens}. */
+  estimateInputTokens?: EstimateInputTokens<TInput>;
+}
+
+export type ModeConfig<TInput = unknown> =
+  | BudgetGuardConfig<TInput>
+  | LoopKillerConfig;
+
+export type CircuitBreakerOptions<TInput = unknown> =
+  | BudgetGuardConfig<TInput>
+  | LoopKillerConfig
+  | DefaultModeConfig<TInput>;
 
 export interface ResolvedLimits {
   mode: Mode;

@@ -69,10 +69,16 @@ export function withCircuitBreaker<
   agent: TAgent,
   options?: OpenAIAgentsWrapperOptions<TFallback, TAgent>,
 ): WrappedAgent<TAgent, TFallback> {
-  const onTrip = options?.onTrip;
-  const runConfig = options?.runConfig;
-  const breakerOpts: CircuitBreakerOptions = stripWrapperOnly(options);
-  const estimate = pickEstimator(options);
+  const opts = options ?? {};
+  const onTrip = opts.onTrip;
+  const runConfig = opts.runConfig;
+  const estimate =
+    opts.mode === "loop-killer"
+      ? undefined
+      : (opts.estimateInputTokens as
+          | EstimateInputTokens<RunInput<any, TAgent>>
+          | undefined);
+  const breakerOpts = toBreakerOpts(opts);
 
   return {
     async run<TContext = undefined>(
@@ -160,30 +166,20 @@ export function withCircuitBreaker<
   };
 }
 
-function stripWrapperOnly<R, TAgent extends Agent<any, any>>(
-  opts: OpenAIAgentsWrapperOptions<R, TAgent> | undefined,
+function toBreakerOpts<R, TAgent extends Agent<any, any>>(
+  opts: OpenAIAgentsWrapperOptions<R, TAgent>,
 ): CircuitBreakerOptions {
-  if (!opts) return {};
+  if (opts.mode === "loop-killer") {
+    const { onTrip: _onTrip, runConfig: _runConfig, ...rest } = opts;
+    return rest;
+  }
   const {
     onTrip: _onTrip,
     runConfig: _runConfig,
-    estimateInputTokens: _estimate,
+    estimateInputTokens: _est,
     ...rest
-  } = opts as OpenAIAgentsWrapperOptions<R, TAgent> & {
-    onTrip?: unknown;
-    runConfig?: unknown;
-    estimateInputTokens?: unknown;
-  };
-  return rest as CircuitBreakerOptions;
-}
-
-function pickEstimator<R, TAgent extends Agent<any, any>>(
-  opts: OpenAIAgentsWrapperOptions<R, TAgent> | undefined,
-): EstimateInputTokens<RunInput<any, TAgent>> | undefined {
-  if (!opts || opts.mode === "loop-killer") return undefined;
-  return opts.estimateInputTokens as
-    | EstimateInputTokens<RunInput<any, TAgent>>
-    | undefined;
+  } = opts;
+  return rest;
 }
 
 function summariseTurnInput(turnInput: AgentInputItem[] | undefined): string | undefined {

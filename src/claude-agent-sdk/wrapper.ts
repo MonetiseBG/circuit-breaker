@@ -62,9 +62,11 @@ export function withCircuitBreaker<TFallback = never>(
   query: QueryFn,
   options?: ClaudeAgentSdkWrapperOptions<TFallback>,
 ): WrappedQuery<TFallback> {
-  const onTrip = options?.onTrip;
-  const breakerOpts: CircuitBreakerOptions = stripWrapperOnly(options);
-  const estimate = pickEstimator(options);
+  const opts = options ?? {};
+  const onTrip = opts.onTrip;
+  const estimate =
+    opts.mode === "loop-killer" ? undefined : opts.estimateInputTokens;
+  const breakerOpts = toBreakerOpts(opts);
 
   return function wrappedQuery(params: QueryParams) {
     return runWithBreaker(query, params, breakerOpts, onTrip, estimate);
@@ -173,24 +175,13 @@ function summariseAssistant(message: SDKAssistantMessage): string | undefined {
   }
 }
 
-function stripWrapperOnly<R>(
-  opts: ClaudeAgentSdkWrapperOptions<R> | undefined,
+function toBreakerOpts<R>(
+  opts: ClaudeAgentSdkWrapperOptions<R>,
 ): CircuitBreakerOptions {
-  if (!opts) return {};
-  const {
-    onTrip: _onTrip,
-    estimateInputTokens: _estimate,
-    ...rest
-  } = opts as ClaudeAgentSdkWrapperOptions<R> & {
-    onTrip?: unknown;
-    estimateInputTokens?: unknown;
-  };
-  return rest as CircuitBreakerOptions;
-}
-
-function pickEstimator<R>(
-  opts: ClaudeAgentSdkWrapperOptions<R> | undefined,
-): EstimateInputTokens<QueryParams> | undefined {
-  if (!opts || opts.mode === "loop-killer") return undefined;
-  return opts.estimateInputTokens;
+  if (opts.mode === "loop-killer") {
+    const { onTrip: _onTrip, ...rest } = opts;
+    return rest;
+  }
+  const { onTrip: _onTrip, estimateInputTokens: _est, ...rest } = opts;
+  return rest;
 }

@@ -1,9 +1,5 @@
 import { CircuitBreakerError } from "../core/errors.js";
-import type {
-  CircuitBreakerOptions,
-  EstimateInputTokens,
-  WrapperOptions,
-} from "../core/types.js";
+import type { CircuitBreakerOptions, WrapperOptions } from "../core/types.js";
 import { CircuitBreakerCallback } from "./callback.js";
 
 /**
@@ -36,13 +32,25 @@ export interface WrappedRunnable<TInput, TOutput> {
  * input before calling the runnable; an oversized prompt trips the breaker
  * preflight so the runnable is never invoked.
  */
+function toBreakerOpts<R, TInput>(
+  opts: WrapperOptions<R, TInput>,
+): CircuitBreakerOptions {
+  if (opts.mode === "loop-killer") {
+    const { onTrip: _onTrip, ...rest } = opts;
+    return rest;
+  }
+  const { onTrip: _onTrip, estimateInputTokens: _est, ...rest } = opts;
+  return rest;
+}
+
 export function withCircuitBreaker<TInput, TOutput, TFallback = never>(
   runnable: RunnableLike<TInput, TOutput>,
   options?: WrapperOptions<TFallback, TInput>,
 ): WrappedRunnable<TInput, TOutput | TFallback> {
-  const callbackOpts = stripWrapperOnly(options);
-  const onTrip = options?.onTrip;
-  const estimate = pickEstimator(options);
+  const opts = options ?? {};
+  const onTrip = opts.onTrip;
+  const estimate = opts.mode === "loop-killer" ? undefined : opts.estimateInputTokens;
+  const callbackOpts = toBreakerOpts(opts);
 
   return {
     async invoke(input, config) {
@@ -65,26 +73,4 @@ export function withCircuitBreaker<TInput, TOutput, TFallback = never>(
       }
     },
   };
-}
-
-function stripWrapperOnly<R, TInput>(
-  opts: WrapperOptions<R, TInput> | undefined,
-): CircuitBreakerOptions {
-  if (!opts) return {};
-  const {
-    onTrip: _onTrip,
-    estimateInputTokens: _estimate,
-    ...rest
-  } = opts as WrapperOptions<R, TInput> & {
-    onTrip?: unknown;
-    estimateInputTokens?: unknown;
-  };
-  return rest as CircuitBreakerOptions;
-}
-
-function pickEstimator<R, TInput>(
-  opts: WrapperOptions<R, TInput> | undefined,
-): EstimateInputTokens<TInput> | undefined {
-  if (!opts || opts.mode === "loop-killer") return undefined;
-  return opts.estimateInputTokens;
 }

@@ -5,7 +5,6 @@ import { defaultLogger } from "./logger.js";
 import type {
   CircuitBreakerEvent,
   CircuitBreakerOptions,
-  CommonConfig,
   EventListener,
   Logger,
   LoopKillerConfig,
@@ -269,7 +268,7 @@ function assertValidMode(opts: CircuitBreakerOptions): void {
 
 function isLoopKillerOptions(
   opts: CircuitBreakerOptions,
-): opts is LoopKillerConfig & CommonConfig {
+): opts is LoopKillerConfig {
   return opts.mode === "loop-killer";
 }
 
