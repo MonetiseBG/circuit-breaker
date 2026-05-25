@@ -36,6 +36,11 @@ Current adapters:
   `generateText`; drives the breaker off the injected `onStepFinish` (one step
   per LLM call) and aborts the tool-loop via the `abortSignal` option. Non-
   streaming only — `streamText` is not yet supported.
+- `@monetisebg/circuit-breaker/langgraph-sdk` — wraps a LangGraph Platform
+  `client.runs`; drives the breaker off the `events` stream mode (forced into
+  `streamMode`), aborts the local stream and cancels the run server-side via
+  `runs.cancel`. For an in-process `@langchain/langgraph` graph use the
+  LangChain adapter instead — a compiled graph is a `Runnable`.
 
 The package root (`@monetisebg/circuit-breaker`) exports only the core:
 `CircuitBreaker`, `CircuitBreakerError`, and the option/context types.
@@ -70,6 +75,11 @@ src/
 │   ├── wrapper.ts         #   withCircuitBreaker(generateText, options) — wraps
 │   │                      #   generateText + onStepFinish + AbortController.
 │   └── index.ts
+├── langgraph-sdk/         # @langchain/langgraph-sdk adapter.
+│   ├── tokens.ts          #   usage_metadata extraction from `events` chunks.
+│   ├── wrapper.ts         #   withCircuitBreaker(runs, options) — wraps
+│   │                      #   runs.stream() + AbortController + runs.cancel().
+│   └── index.ts
 └── index.ts               # Root: re-exports core only.
 
 tests/
@@ -77,12 +87,13 @@ tests/
 ├── langchain/{callback,wrapper}.test.ts
 ├── openai-agents/wrapper.test.ts
 ├── claude-agent-sdk/wrapper.test.ts
-└── ai-sdk/wrapper.test.ts
+├── ai-sdk/wrapper.test.ts
+└── langgraph-sdk/wrapper.test.ts
 ```
 
 Build output goes to `dist/` with one ESM bundle, one CJS bundle, and one
 `.d.ts` per entry (`index`, `langchain`, `openai-agents`,
-`claude-agent-sdk`, `ai-sdk`).
+`claude-agent-sdk`, `ai-sdk`, `langgraph-sdk`).
 
 ---
 
