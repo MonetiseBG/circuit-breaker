@@ -32,6 +32,10 @@ Current adapters:
 - `@monetisebg/circuit-breaker/claude-agent-sdk` — wraps the Claude Agent
   SDK's `query` function; drives the breaker off the streamed `SDKMessage`s
   and aborts via the SDK's `abortController` option.
+- `@monetisebg/circuit-breaker/ai-sdk` — wraps the Vercel AI SDK's
+  `generateText`; drives the breaker off the injected `onStepFinish` (one step
+  per LLM call) and aborts the tool-loop via the `abortSignal` option. Non-
+  streaming only — `streamText` is not yet supported.
 
 The package root (`@monetisebg/circuit-breaker`) exports only the core:
 `CircuitBreaker`, `CircuitBreakerError`, and the option/context types.
@@ -61,18 +65,24 @@ src/
 │   ├── wrapper.ts         #   withCircuitBreaker(query, options) — wraps the
 │   │                      #   query() generator + AbortController.
 │   └── index.ts
+├── ai-sdk/                # ai (Vercel AI SDK) adapter.
+│   ├── tokens.ts          #   usage extraction from a StepResult.
+│   ├── wrapper.ts         #   withCircuitBreaker(generateText, options) — wraps
+│   │                      #   generateText + onStepFinish + AbortController.
+│   └── index.ts
 └── index.ts               # Root: re-exports core only.
 
 tests/
 ├── core/breaker.test.ts
 ├── langchain/{callback,wrapper}.test.ts
 ├── openai-agents/wrapper.test.ts
-└── claude-agent-sdk/wrapper.test.ts
+├── claude-agent-sdk/wrapper.test.ts
+└── ai-sdk/wrapper.test.ts
 ```
 
 Build output goes to `dist/` with one ESM bundle, one CJS bundle, and one
 `.d.ts` per entry (`index`, `langchain`, `openai-agents`,
-`claude-agent-sdk`).
+`claude-agent-sdk`, `ai-sdk`).
 
 ---
 

@@ -22,7 +22,8 @@ limit, and (optionally) refuses an oversized prompt before it is even sent.
 - No bundled tokenizer: bring your own (`js-tiktoken`, `tiktoken`, provider SDK).
 
 Shipped adapters: **LangChain.js**, **OpenAI Agents SDK**, **Claude Agent
-SDK**. The core is framework-agnostic; rolling your own adapter is a few lines.
+SDK**, **Vercel AI SDK**. The core is framework-agnostic; rolling your own
+adapter is a few lines.
 
 
 [Watch the 1-minute overview](https://www.youtube.com/watch?v=nhRmZBkjeFU) — see how Circuit Breaker stops a runaway agent in real time.
@@ -40,6 +41,7 @@ npm install @monetisebg/circuit-breaker
 npm install @langchain/core@^1.1.47              # for the LangChain adapter
 npm install @openai/agents@^0.11.0               # for the OpenAI Agents adapter
 npm install @anthropic-ai/claude-agent-sdk@^0.2  # for the Claude Agent SDK adapter
+npm install ai@^5                                 # for the Vercel AI SDK adapter
 ```
 
 ## Quick start (`budget-guard`, the default)
@@ -236,6 +238,46 @@ in `options` is chained, so external cancellation still works.
 
 With `onTrip`, the callback's return value is yielded as the generator's
 final item instead of throwing.
+
+## Vercel AI SDK
+
+For the [AI SDK](https://ai-sdk.dev)'s `generateText` and its internal
+tool-loop. Wrap the imported `generateText` and call the result exactly as you
+would call `generateText` itself.
+
+```ts
+import { generateText, stepCountIs } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { withCircuitBreaker } from "@monetisebg/circuit-breaker/ai-sdk";
+
+const guarded = withCircuitBreaker(generateText, {
+  maxInputToken: 50_000,
+  maxOutputToken: 20_000,
+});
+
+const result = await guarded({
+  model: openai("gpt-4o"),
+  prompt: "Analyze this repo",
+  tools: { /* … */ },
+  stopWhen: stepCountIs(20),
+});
+```
+
+The wrapper takes `generateText` and returns a function with the same options
+and result type. Iterations are counted on each finished step (one per LLM
+call) via an injected `onStepFinish`; tokens are read from each step's `usage`
+as per-call deltas. For `loop-killer`, the step's tool calls (or its text, as a
+fallback) are hashed — a stuck agent re-issues the same tool call each step.
+
+On a trip an internal `AbortSignal` cancels the loop before the next LLM call;
+any `abortSignal` you pass is chained, and a caller-supplied `onStepFinish`
+still fires for every step. If the trip lands on the final step (nothing left
+to abort), it is surfaced after `generateText` returns. Your `stopWhen`,
+`tools`, `prepareStep`, and other options pass through untouched.
+
+With `onTrip`, the callback's return value becomes the result instead of
+throwing. Streaming (`streamText`) is not yet supported — use the core
+`CircuitBreaker` directly if you need it.
 
 ## Trip output
 
