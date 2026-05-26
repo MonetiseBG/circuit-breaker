@@ -10,6 +10,9 @@
     "claude",
     "anthropic",
     "claude-agent-sdk",
+    "vercel",
+    "vercel-ai-sdk",
+    "ai-sdk",
     "agent",
     "circuit-breaker",
     "ai",
@@ -54,6 +57,11 @@
       "types": "./dist/claude-agent-sdk.d.ts",
       "import": "./dist/claude-agent-sdk.js",
       "require": "./dist/claude-agent-sdk.cjs"
+    },
+    "./ai-sdk": {
+      "types": "./dist/ai-sdk.d.ts",
+      "import": "./dist/ai-sdk.js",
+      "require": "./dist/ai-sdk.cjs"
     }
   },
   "files": [
@@ -76,7 +84,8 @@
   "peerDependencies": {
     "@anthropic-ai/claude-agent-sdk": ">=0.2.0 <1.0.0",
     "@langchain/core": "^1.1.47",
-    "@openai/agents": ">=0.11.0 <1.0.0"
+    "@openai/agents": ">=0.11.0 <1.0.0",
+    "ai": ">=5.0.0 <7.0.0"
   },
   "peerDependenciesMeta": {
     "@anthropic-ai/claude-agent-sdk": {
@@ -87,12 +96,16 @@
     },
     "@openai/agents": {
       "optional": true
+    },
+    "ai": {
+      "optional": true
     }
   },
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.141",
     "@langchain/core": "^1.1.47",
     "@openai/agents": "^0.11.0",
+    "ai": "^6.0.191",
     "@types/node": "^22.0.0",
     "tsup": "^8.3.0",
     "typescript": "^5.6.0",
