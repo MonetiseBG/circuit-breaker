@@ -1,6 +1,6 @@
 {
   "name": "@monetisebg/circuit-breaker",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Circuit breaker for AI agents — pick budget-guard or loop-killer mode and stop runaway token spend or stuck agents in one wrapper. Adapters for LangChain, OpenAI Agents SDK, and the Claude Agent SDK.",
   "keywords": [
     "langchain",
