@@ -22,8 +22,8 @@ limit, and (optionally) refuses an oversized prompt before it is even sent.
 - No bundled tokenizer: bring your own (`js-tiktoken`, `tiktoken`, provider SDK).
 
 Shipped adapters: **LangChain.js**, **OpenAI Agents SDK**, **Claude Agent
-SDK**, **Vercel AI SDK**. The core is framework-agnostic; rolling your own
-adapter is a few lines.
+SDK**, **Vercel AI SDK**, **LangGraph Platform SDK**. The core is
+framework-agnostic; rolling your own adapter is a few lines.
 
 
 [Watch the 1-minute overview](https://www.youtube.com/watch?v=nhRmZBkjeFU) — see how Circuit Breaker stops a runaway agent in real time.
@@ -42,6 +42,7 @@ npm install @langchain/core@^1.1.47              # for the LangChain adapter
 npm install @openai/agents@^0.11.0               # for the OpenAI Agents adapter
 npm install @anthropic-ai/claude-agent-sdk@^0.2  # for the Claude Agent SDK adapter
 npm install ai@^5                                 # for the Vercel AI SDK adapter
+npm install @langchain/langgraph-sdk@^1           # for the LangGraph Platform SDK adapter
 ```
 
 ## Quick start (`budget-guard`, the default)
@@ -248,7 +249,7 @@ would call `generateText` itself.
 ```ts
 import { generateText, stepCountIs } from "ai";
 import { openai } from "@ai-sdk/openai";
-import { withCircuitBreaker } from "@monetisebg/circuit-breaker/ai-sdk";
+import { withCircuitBreaker } from "@monetisebg/circuit-breaker/vercel-ai-sdk";
 
 const guarded = withCircuitBreaker(generateText, {
   maxInputToken: 50_000,
@@ -278,6 +279,52 @@ to abort), it is surfaced after `generateText` returns. Your `stopWhen`,
 With `onTrip`, the callback's return value becomes the result instead of
 throwing. Streaming (`streamText`) is not yet supported — use the core
 `CircuitBreaker` directly if you need it.
+
+## LangGraph Platform SDK
+
+For graphs deployed to **LangGraph Platform** and driven through the remote
+`@langchain/langgraph-sdk` client. (For an in-process `@langchain/langgraph`
+graph, use the [LangChain adapter](#langchainjs) — a compiled graph is a
+`Runnable` and propagates callbacks.)
+
+```ts
+import { Client } from "@langchain/langgraph-sdk";
+import { withCircuitBreaker } from "@monetisebg/circuit-breaker/langgraph-sdk";
+
+const client = new Client({ apiUrl: "http://localhost:2024" });
+const runs = withCircuitBreaker(client.runs, {
+  maxInputToken: 50_000,
+  maxOutputToken: 20_000,
+});
+
+for await (const chunk of runs.stream(threadId, "agent", {
+  input: { messages: [{ role: "user", content: "Analyze this repo" }] },
+  streamMode: "updates",
+})) {
+  // chunks stream through untouched
+}
+```
+
+The wrapper takes `client.runs` and returns an object with the same
+`stream(threadId, assistantId, payload)` signature.
+
+Because the graph executes server-side, the breaker is driven off the
+`events` stream mode — the only mode that reports both per-LLM-call
+boundaries and token usage. The wrapper **forces `events` into the run's
+`streamMode`**; if you didn't request it, those injected chunks are consumed
+internally and never yielded, so your stream is unchanged. Iterations are
+counted on each `on_chat_model_start`; tokens are read from each
+`on_chat_model_end`'s `usage_metadata`. For `loop-killer`, the latest input
+message is hashed.
+
+On a trip the wrapper aborts the local stream **and** calls
+`client.runs.cancel(...)` to stop the run server-side (the run id is taken
+from the `metadata` event) — closing the SSE connection alone would leave the
+graph running. Any `signal` you pass in the payload is chained, so external
+aborts still work.
+
+With `onTrip`, the callback's return value is yielded as the generator's
+final item instead of throwing.
 
 ## Trip output
 

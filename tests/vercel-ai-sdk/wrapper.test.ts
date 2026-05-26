@@ -5,7 +5,7 @@ import {
   withCircuitBreaker,
   type GenerateTextFn,
   type GenerateTextOptions,
-} from "../../src/ai-sdk/index.js";
+} from "../../src/vercel-ai-sdk/index.js";
 
 const abortError = (): Error => {
   const err = new Error("Aborted") as Error & { name: string };
