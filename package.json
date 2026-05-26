@@ -60,15 +60,15 @@
       "import": "./dist/claude-agent-sdk.js",
       "require": "./dist/claude-agent-sdk.cjs"
     },
-    "./ai-sdk": {
-      "types": "./dist/ai-sdk.d.ts",
-      "import": "./dist/ai-sdk.js",
-      "require": "./dist/ai-sdk.cjs"
-    },
     "./langgraph-sdk": {
       "types": "./dist/langgraph-sdk.d.ts",
       "import": "./dist/langgraph-sdk.js",
       "require": "./dist/langgraph-sdk.cjs"
+    },
+    "./vercel-ai-sdk": {
+      "types": "./dist/vercel-ai-sdk.d.ts",
+      "import": "./dist/vercel-ai-sdk.js",
+      "require": "./dist/vercel-ai-sdk.cjs"
     }
   },
   "files": [
