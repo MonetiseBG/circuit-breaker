@@ -1,6 +1,6 @@
 export { withCircuitBreaker } from "./wrapper.js";
 export type {
-  AiSdkWrapperOptions,
+  VercelAiSdkWrapperOptions,
   GenerateTextFn,
   GenerateTextOptions,
   GenerateTextOutput,

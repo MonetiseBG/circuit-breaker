@@ -37,7 +37,7 @@ Current adapters:
   `streamMode`), aborts the local stream and cancels the run server-side via
   `runs.cancel`. For an in-process `@langchain/langgraph` graph use the
   LangChain adapter instead — a compiled graph is a `Runnable`.
-- `@monetisebg/circuit-breaker/ai-sdk` — wraps the Vercel AI SDK's
+- `@monetisebg/circuit-breaker/vercel-ai-sdk` — wraps the Vercel AI SDK's
   `generateText`; drives the breaker off the injected `onStepFinish` (one step
   per LLM call) and aborts the tool-loop via the `abortSignal` option. Non-
   streaming only — `streamText` is not yet supported.
@@ -75,7 +75,7 @@ src/
 │   ├── wrapper.ts         #   withCircuitBreaker(runs, options) — wraps
 │   │                      #   runs.stream() + AbortController + runs.cancel().
 │   └── index.ts
-├── ai-sdk/                # ai (Vercel AI SDK) adapter.
+├── vercel-ai-sdk/         # ai (Vercel AI SDK) adapter.
 │   ├── tokens.ts          #   usage extraction from a StepResult.
 │   ├── wrapper.ts         #   withCircuitBreaker(generateText, options) — wraps
 │   │                      #   generateText + onStepFinish + AbortController.
@@ -88,12 +88,12 @@ tests/
 ├── openai-agents/wrapper.test.ts
 ├── claude-agent-sdk/wrapper.test.ts
 ├── langgraph-sdk/wrapper.test.ts
-└── ai-sdk/wrapper.test.ts
+└── vercel-ai-sdk/wrapper.test.ts
 ```
 
 Build output goes to `dist/` with one ESM bundle, one CJS bundle, and one
 `.d.ts` per entry (`index`, `langchain`, `openai-agents`,
-`claude-agent-sdk`, `langgraph-sdk`, `ai-sdk`).
+`claude-agent-sdk`, `langgraph-sdk`, `vercel-ai-sdk`).
 
 ---
 

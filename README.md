@@ -295,7 +295,7 @@ would call `generateText` itself.
 ```ts
 import { generateText, stepCountIs } from "ai";
 import { openai } from "@ai-sdk/openai";
-import { withCircuitBreaker } from "@monetisebg/circuit-breaker/ai-sdk";
+import { withCircuitBreaker } from "@monetisebg/circuit-breaker/vercel-ai-sdk";
 
 const guarded = withCircuitBreaker(generateText, {
   maxInputToken: 50_000,

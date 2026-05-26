@@ -27,7 +27,7 @@ export type GenerateTextOutput = Awaited<ReturnType<GenerateTextFn>>;
  * preflight `estimateInputTokens` receives the {@link GenerateTextOptions} the
  * wrapped `generateText` was called with.
  */
-export type AiSdkWrapperOptions<TFallback = never> = WrapperOptions<
+export type VercelAiSdkWrapperOptions<TFallback = never> = WrapperOptions<
   TFallback,
   GenerateTextOptions
 >;
@@ -63,7 +63,7 @@ export interface WrappedGenerateText<TFallback = never> {
  */
 export function withCircuitBreaker<TFallback = never>(
   generate: GenerateTextFn,
-  options?: AiSdkWrapperOptions<TFallback>,
+  options?: VercelAiSdkWrapperOptions<TFallback>,
 ): WrappedGenerateText<TFallback> {
   const opts = options ?? {};
   const onTrip = opts.onTrip;
@@ -168,7 +168,7 @@ function summariseStep(step: StepResult<ToolSet>): string | undefined {
   }
 }
 
-function toBreakerOpts<R>(opts: AiSdkWrapperOptions<R>): CircuitBreakerOptions {
+function toBreakerOpts<R>(opts: VercelAiSdkWrapperOptions<R>): CircuitBreakerOptions {
   if (opts.mode === "loop-killer") {
     const { onTrip: _onTrip, ...rest } = opts;
     return rest;
