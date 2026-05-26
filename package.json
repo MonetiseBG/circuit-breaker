@@ -5,6 +5,8 @@
   "keywords": [
     "langchain",
     "langchainjs",
+    "langgraph",
+    "langgraph-sdk",
     "openai",
     "openai-agents",
     "claude",
@@ -54,6 +56,11 @@
       "types": "./dist/claude-agent-sdk.d.ts",
       "import": "./dist/claude-agent-sdk.js",
       "require": "./dist/claude-agent-sdk.cjs"
+    },
+    "./langgraph-sdk": {
+      "types": "./dist/langgraph-sdk.d.ts",
+      "import": "./dist/langgraph-sdk.js",
+      "require": "./dist/langgraph-sdk.cjs"
     }
   },
   "files": [
@@ -76,6 +83,7 @@
   "peerDependencies": {
     "@anthropic-ai/claude-agent-sdk": ">=0.2.0 <1.0.0",
     "@langchain/core": "^1.1.47",
+    "@langchain/langgraph-sdk": ">=0.1.0 <2.0.0",
     "@openai/agents": ">=0.11.0 <1.0.0"
   },
   "peerDependenciesMeta": {
@@ -85,6 +93,9 @@
     "@langchain/core": {
       "optional": true
     },
+    "@langchain/langgraph-sdk": {
+      "optional": true
+    },
     "@openai/agents": {
       "optional": true
     }
@@ -92,6 +103,7 @@
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.141",
     "@langchain/core": "^1.1.47",
+    "@langchain/langgraph-sdk": "^1.9.4",
     "@openai/agents": "^0.11.0",
     "@types/node": "^22.0.0",
     "tsup": "^8.3.0",

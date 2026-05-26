@@ -6,6 +6,7 @@ export default defineConfig({
     langchain: "src/langchain/index.ts",
     "openai-agents": "src/openai-agents/index.ts",
     "claude-agent-sdk": "src/claude-agent-sdk/index.ts",
+    "langgraph-sdk": "src/langgraph-sdk/index.ts",
   },
   format: ["esm", "cjs"],
   dts: true,
