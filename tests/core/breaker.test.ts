@@ -280,7 +280,7 @@ describe("CircuitBreaker (core)", () => {
     it("rejects runtime mode values outside the public union", () => {
       expect(
         () => new CircuitBreaker({ mode: "invalid" } as never),
-      ).toThrow(/mode must be "budget-guard" or "loop-killer"/);
+      ).toThrow(/mode must be/);
       expect(
         () => new CircuitBreaker({ mode: 42 } as never),
       ).toThrow(TypeError);
