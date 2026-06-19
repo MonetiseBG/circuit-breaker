@@ -206,3 +206,52 @@ describe("withCircuitBreaker (LangChain wrapper)", () => {
     });
   });
 });
+
+describe("withCircuitBreaker (LangChain) — worth-it mode", () => {
+  const PENNY = { inputPerMToken: 0, outputPerMToken: 10000 }; // output: 0.01/token, input free
+
+  it("trips on projected budget overrun", async () => {
+    const safe = withCircuitBreaker(fakeRunnable(10, 100), {
+      mode: "worth-it",
+      budgetLimit: 1.0,
+      milestones: 4,
+      defaultPricing: PENNY,
+      silent: true,
+    });
+    await expect(safe.invoke({ input: "hi" })).rejects.toMatchObject({
+      reason: "budget_projection",
+      mode: "worth-it",
+    });
+  });
+
+  it("invokes onWorthItStep per LLM call", async () => {
+    let calls = 0;
+    const safe = withCircuitBreaker(fakeRunnable(3, 10), {
+      mode: "worth-it",
+      budgetLimit: 1000,
+      milestones: 3,
+      defaultPricing: PENNY,
+      silent: true,
+      onWorthItStep: (controls) => {
+        calls += 1;
+        controls.completeMilestone();
+      },
+    });
+    await expect(safe.invoke({ input: "hi" })).resolves.toEqual({ output: "ok" });
+    expect(calls).toBe(3);
+  });
+
+  it("routes a worth-it trip through onTrip", async () => {
+    const safe = withCircuitBreaker(fakeRunnable(10, 100), {
+      mode: "worth-it",
+      budgetLimit: 1.0,
+      milestones: 4,
+      defaultPricing: PENNY,
+      silent: true,
+      onTrip: (ctx) => ({ output: "fallback", reason: ctx.reason }),
+    });
+    await expect(safe.invoke({ input: "hi" })).resolves.toMatchObject({
+      output: "fallback",
+    });
+  });
+});

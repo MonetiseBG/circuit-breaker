@@ -1,8 +1,16 @@
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import type { LLMResult } from "@langchain/core/outputs";
 
-import { CircuitBreaker } from "../core/index.js";
-import type { CircuitBreakerOptions, Metrics } from "../core/index.js";
+import { CircuitBreaker, createWorthItRunner } from "../core/index.js";
+import type {
+  CircuitBreakerOptions,
+  Metrics,
+  OnWorthItStep,
+  WorthItControls,
+  WorthItMetrics,
+  WorthItRunner,
+  WorthItWrapperConfig,
+} from "../core/index.js";
 import { extractTokens } from "./tokens.js";
 
 /**
@@ -106,4 +114,44 @@ function summariseLastMessage(messages: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+/**
+ * LangChain callback handler that drives a {@link WorthItEngine} (cost-predictive
+ * `worth-it` mode). One step is recorded per `handleLLMEnd`; the developer
+ * advances milestones via the `onWorthItStep` hook. Throws
+ * {@link CircuitBreakerError} from `handleLLMEnd` when the projection trips.
+ */
+export class WorthItCallback extends BaseCallbackHandler {
+  override name = "WorthItCallback";
+
+  private readonly runner: WorthItRunner<LLMResult>;
+
+  constructor(
+    opts: WorthItWrapperConfig,
+    onWorthItStep?: OnWorthItStep<LLMResult>,
+  ) {
+    super();
+    this.runner = createWorthItRunner(opts, onWorthItStep);
+  }
+
+  get controls(): WorthItControls {
+    return this.runner.controls;
+  }
+
+  get metrics(): WorthItMetrics {
+    return this.runner.controls.metrics;
+  }
+
+  override async handleLLMEnd(output: LLMResult): Promise<void> {
+    const { input, output: out } = extractTokens(output);
+    this.runner.recordStep({ input, output: out, model: resultModel(output) }, output);
+  }
+}
+
+/** Best-effort model id from an LLMResult; else `defaultPricing`. */
+function resultModel(output: LLMResult): string | undefined {
+  const llmOutput = isRecord(output.llmOutput) ? output.llmOutput : undefined;
+  const name = llmOutput?.["model_name"] ?? llmOutput?.["model"];
+  return typeof name === "string" ? name : undefined;
 }

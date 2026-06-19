@@ -1,6 +1,6 @@
-export { CircuitBreakerCallback } from "./callback.js";
+export { CircuitBreakerCallback, WorthItCallback } from "./callback.js";
 export { withCircuitBreaker } from "./wrapper.js";
-export type { RunnableLike } from "./wrapper.js";
+export type { LangChainWrapperOptions, RunnableLike } from "./wrapper.js";
 // Re-export core symbols that users commonly need next to the adapter.
 export { CircuitBreakerError } from "../core/index.js";
 export type {
@@ -22,4 +22,19 @@ export type {
   TokenMetrics,
   TripContext,
   WrapperOptions,
+} from "../core/index.js";
+
+export type {
+  ModelPricing,
+  OnWorthItStep,
+  OptimizeContextEvent,
+  PredictiveWarningEvent,
+  StepUsage,
+  TrippedEvent,
+  WorthItConfig,
+  WorthItControls,
+  WorthItMetrics,
+  WorthItStepState,
+  WorthItWrapperConfig,
+  WorthItWrapperOptions,
 } from "../core/index.js";
