@@ -22,3 +22,18 @@ export type {
   TripContext,
   WrapperOptions,
 } from "../core/index.js";
+
+export type {
+  ModelPricing,
+  OnWorthItStep,
+  OptimizeContextEvent,
+  PredictiveWarningEvent,
+  StepUsage,
+  TrippedEvent,
+  WorthItConfig,
+  WorthItControls,
+  WorthItMetrics,
+  WorthItStepState,
+  WorthItWrapperConfig,
+  WorthItWrapperOptions,
+} from "../core/index.js";
