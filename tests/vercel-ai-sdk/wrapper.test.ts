@@ -276,3 +276,54 @@ describe("withCircuitBreaker (ai / Vercel AI SDK wrapper)", () => {
     });
   });
 });
+
+const WORTH_IT_PENNY = { inputPerMToken: 0, outputPerMToken: 10000 }; // output: 0.01/token, input free
+
+describe("withCircuitBreaker (ai / Vercel) — worth-it mode", () => {
+  it("trips on projected budget overrun", async () => {
+    const safe = withCircuitBreaker(makeGenerateText({ steps: 10, tokensPerStep: 100 }), {
+      mode: "worth-it",
+      budgetLimit: 1.0,
+      milestones: 4,
+      defaultPricing: WORTH_IT_PENNY,
+      silent: true,
+    });
+    await expect(safe(callOpts())).rejects.toMatchObject({
+      name: "CircuitBreakerError",
+      reason: "budget_projection",
+      mode: "worth-it",
+    });
+  });
+
+  it("invokes onWorthItStep before costing each step", async () => {
+    let calls = 0;
+    const safe = withCircuitBreaker(makeGenerateText({ steps: 3, tokensPerStep: 10 }), {
+      mode: "worth-it",
+      budgetLimit: 1000,
+      milestones: 3,
+      defaultPricing: WORTH_IT_PENNY,
+      silent: true,
+      onWorthItStep: (controls) => {
+        calls += 1;
+        controls.completeMilestone();
+      },
+    });
+    await expect(safe(callOpts())).resolves.toMatchObject({ text: "done" });
+    expect(calls).toBe(3);
+  });
+
+  it("routes a worth-it trip through onTrip", async () => {
+    const safe = withCircuitBreaker(makeGenerateText({ steps: 10, tokensPerStep: 100 }), {
+      mode: "worth-it",
+      budgetLimit: 1.0,
+      milestones: 4,
+      defaultPricing: WORTH_IT_PENNY,
+      silent: true,
+      onTrip: (ctx) => ({ text: "stopped", reason: ctx.reason }),
+    });
+    await expect(safe(callOpts())).resolves.toMatchObject({
+      text: "stopped",
+      reason: "budget_projection",
+    });
+  });
+});

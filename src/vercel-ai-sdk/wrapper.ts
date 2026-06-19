@@ -1,10 +1,19 @@
 import type { StepResult, ToolSet, generateText as GenerateText } from "ai";
 
-import { CircuitBreaker, CircuitBreakerError } from "../core/index.js";
+import {
+  CircuitBreaker,
+  CircuitBreakerError,
+  createWorthItRunner,
+  isWorthItConfig,
+} from "../core/index.js";
 import type {
   CircuitBreakerOptions,
   EstimateInputTokens,
   OnTrip,
+  OnWorthItStep,
+  WorthItRunner,
+  WorthItWrapperConfig,
+  WorthItWrapperOptions,
   WrapperOptions,
 } from "../core/index.js";
 import { extractTokens } from "./tokens.js";
@@ -27,10 +36,9 @@ export type GenerateTextOutput = Awaited<ReturnType<GenerateTextFn>>;
  * preflight `estimateInputTokens` receives the {@link GenerateTextOptions} the
  * wrapped `generateText` was called with.
  */
-export type VercelAiSdkWrapperOptions<TFallback = never> = WrapperOptions<
-  TFallback,
-  GenerateTextOptions
->;
+export type VercelAiSdkWrapperOptions<TFallback = never> =
+  | WrapperOptions<TFallback, GenerateTextOptions>
+  | WorthItWrapperOptions<TFallback, StepResult<ToolSet>>;
 
 export interface WrappedGenerateText<TFallback = never> {
   (options: GenerateTextOptions): Promise<GenerateTextOutput | TFallback>;
@@ -67,12 +75,80 @@ export function withCircuitBreaker<TFallback = never>(
 ): WrappedGenerateText<TFallback> {
   const opts = options ?? {};
   const onTrip = opts.onTrip;
+
+  if (isWorthItConfig(opts)) {
+    const worthItOpts = opts;
+    const onWorthItStep = opts.onWorthItStep;
+    return (genOptions: GenerateTextOptions) =>
+      runWithWorthIt(generate, genOptions, worthItOpts, onWorthItStep, onTrip);
+  }
+
   const estimate =
     opts.mode === "loop-killer" ? undefined : opts.estimateInputTokens;
   const breakerOpts = toBreakerOpts(opts);
 
   return (genOptions: GenerateTextOptions) =>
     runWithBreaker(generate, genOptions, breakerOpts, onTrip, estimate);
+}
+
+async function runWithWorthIt<TFallback>(
+  generate: GenerateTextFn,
+  genOptions: GenerateTextOptions,
+  worthItOpts: WorthItWrapperConfig,
+  onWorthItStep: OnWorthItStep<StepResult<ToolSet>> | undefined,
+  onTrip: OnTrip<TFallback> | undefined,
+): Promise<GenerateTextOutput | TFallback> {
+  const runner: WorthItRunner<StepResult<ToolSet>> = createWorthItRunner(
+    worthItOpts,
+    onWorthItStep,
+  );
+
+  const controller = new AbortController();
+  const userSignal = genOptions.abortSignal;
+  if (userSignal) {
+    if (userSignal.aborted) controller.abort();
+    else
+      userSignal.addEventListener("abort", () => controller.abort(), {
+        once: true,
+      });
+  }
+
+  let tripError: CircuitBreakerError | undefined;
+  const userOnStepFinish = genOptions.onStepFinish;
+
+  const onStepFinish = async (step: StepResult<ToolSet>): Promise<void> => {
+    if (userOnStepFinish) await userOnStepFinish(step);
+    if (tripError) return;
+    try {
+      const { input, output } = extractTokens(step.usage);
+      runner.recordStep({ input, output, model: stepModel(step) }, step);
+    } catch (err) {
+      if (err instanceof CircuitBreakerError) {
+        tripError = err;
+        controller.abort();
+        return;
+      }
+      throw err;
+    }
+  };
+
+  try {
+    const result = await generate({
+      ...genOptions,
+      abortSignal: controller.signal,
+      onStepFinish,
+    });
+    return tripError ? handleTrip(tripError, onTrip) : result;
+  } catch (err) {
+    if (tripError) return handleTrip(tripError, onTrip);
+    throw err;
+  }
+}
+
+/** Best-effort model id for pricing lookup; falls back to `defaultPricing`. */
+function stepModel(step: StepResult<ToolSet>): string | undefined {
+  const id = (step as { response?: { modelId?: unknown } }).response?.modelId;
+  return typeof id === "string" ? id : undefined;
 }
 
 async function runWithBreaker<TFallback>(
@@ -168,7 +244,9 @@ function summariseStep(step: StepResult<ToolSet>): string | undefined {
   }
 }
 
-function toBreakerOpts<R>(opts: VercelAiSdkWrapperOptions<R>): CircuitBreakerOptions {
+function toBreakerOpts<R>(
+  opts: WrapperOptions<R, GenerateTextOptions>,
+): CircuitBreakerOptions {
   if (opts.mode === "loop-killer") {
     const { onTrip: _onTrip, ...rest } = opts;
     return rest;
