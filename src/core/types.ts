@@ -136,10 +136,10 @@ export type CircuitBreakerOptions<TInput = unknown> =
   | DefaultModeConfig<TInput>;
 
 /**
- * Mode config accepted at the wrapper layer: the core {@link CircuitBreakerOptions}
- * (`budget-guard` / `loop-killer`) plus the `worth-it` engine mode. The core
- * `CircuitBreaker` class itself only accepts {@link CircuitBreakerOptions};
- * `worth-it` is handled by `WorthItEngine` inside the adapters.
+ * Mode config accepted by the core `CircuitBreaker` and by the adapters: the
+ * token/loop {@link CircuitBreakerOptions} (`budget-guard` / `loop-killer`) plus
+ * the `worth-it` engine mode. In `worth-it` mode the `CircuitBreaker` delegates
+ * to an internal `WorthItEngine`.
  */
 export type WrapperModeConfig<TInput = unknown> =
   | CircuitBreakerOptions<TInput>
