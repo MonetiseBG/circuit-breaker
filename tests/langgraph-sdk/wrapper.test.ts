@@ -291,3 +291,54 @@ describe("withCircuitBreaker (@langchain/langgraph-sdk wrapper)", () => {
     });
   });
 });
+
+describe("withCircuitBreaker (langgraph-sdk) — worth-it mode", () => {
+  const PENNY = { inputPerMToken: 0, outputPerMToken: 10000 }; // output: 0.01/token, input free
+
+  it("trips on projected budget overrun", async () => {
+    const runs = makeRuns({ turns: 10, tokensPerTurn: 100 });
+    const safe = withCircuitBreaker(runs, {
+      mode: "worth-it",
+      budgetLimit: 1.0,
+      milestones: 4,
+      defaultPricing: PENNY,
+      silent: true,
+    });
+    await expect(
+      collect(safe.stream("thread-1", "agent", { input: {} })),
+    ).rejects.toMatchObject({ reason: "budget_projection", mode: "worth-it" });
+  });
+
+  it("invokes onWorthItStep per model-end event", async () => {
+    let calls = 0;
+    const runs = makeRuns({ turns: 3, tokensPerTurn: 10 });
+    const safe = withCircuitBreaker(runs, {
+      mode: "worth-it",
+      budgetLimit: 1000,
+      milestones: 3,
+      defaultPricing: PENNY,
+      silent: true,
+      onWorthItStep: (controls) => {
+        calls += 1;
+        controls.completeMilestone();
+      },
+    });
+    await collect(safe.stream("thread-1", "agent", { input: {} }));
+    expect(calls).toBe(3);
+  });
+
+  it("yields onTrip fallback as the final item and cancels server-side", async () => {
+    const runs = makeRuns({ turns: 10, tokensPerTurn: 100 });
+    const safe = withCircuitBreaker(runs, {
+      mode: "worth-it",
+      budgetLimit: 1.0,
+      milestones: 4,
+      defaultPricing: PENNY,
+      silent: true,
+      onTrip: () => ({ event: "fallback", data: null }),
+    });
+    const chunks = await collect(safe.stream("thread-1", "agent", { input: {} }));
+    expect(chunks.at(-1)).toMatchObject({ event: "fallback" });
+    expect(runs.cancel).toHaveBeenCalled();
+  });
+});

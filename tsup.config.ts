@@ -8,6 +8,7 @@ export default defineConfig({
     "claude-agent-sdk": "src/claude-agent-sdk/index.ts",
     "langgraph-sdk": "src/langgraph-sdk/index.ts",
     "vercel-ai-sdk": "src/vercel-ai-sdk/index.ts",
+    "worth-it": "src/worth-it/index.ts",
   },
   format: ["esm", "cjs"],
   dts: true,

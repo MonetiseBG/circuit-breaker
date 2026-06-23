@@ -1,7 +1,7 @@
 {
   "name": "@monetisebg/circuit-breaker",
   "version": "0.1.1",
-  "description": "Circuit breaker for AI agents — pick budget-guard or loop-killer mode and stop runaway token spend or stuck agents in one wrapper. Adapters for LangChain, OpenAI Agents SDK, and the Claude Agent SDK.",
+  "description": "Circuit breaker for AI agents — pick budget-guard, loop-killer or worth-it mode and stop runaway token spend, stuck agents or budget overruns in one wrapper. Adapters for LangChain, OpenAI Agents SDK, Claude Agent SDK, Vercel AI SDK and LangGraph Platform SDK.",
   "keywords": [
     "langchain",
     "langchainjs",
@@ -69,6 +69,11 @@
       "types": "./dist/vercel-ai-sdk.d.ts",
       "import": "./dist/vercel-ai-sdk.js",
       "require": "./dist/vercel-ai-sdk.cjs"
+    },
+    "./worth-it": {
+      "types": "./dist/worth-it.d.ts",
+      "import": "./dist/worth-it.js",
+      "require": "./dist/worth-it.cjs"
     }
   },
   "files": [

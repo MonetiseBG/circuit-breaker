@@ -243,3 +243,52 @@ describe("withCircuitBreaker (@openai/agents wrapper)", () => {
     });
   });
 });
+
+describe("withCircuitBreaker (@openai/agents) — worth-it mode", () => {
+  const PENNY = { inputPerMToken: 0, outputPerMToken: 10000 }; // output: 0.01/token, input free
+
+  it("trips on projected budget overrun", async () => {
+    const safe = withCircuitBreaker(makeAgent({ __turns: 10, __tokensPerTurn: 100 }), {
+      mode: "worth-it",
+      budgetLimit: 1.0,
+      milestones: 4,
+      defaultPricing: PENNY,
+      silent: true,
+    });
+    await expect(safe.run("hello")).rejects.toMatchObject({
+      reason: "budget_projection",
+      mode: "worth-it",
+    });
+  });
+
+  it("invokes onWorthItStep per turn", async () => {
+    let calls = 0;
+    const safe = withCircuitBreaker(makeAgent({ __turns: 3, __tokensPerTurn: 10 }), {
+      mode: "worth-it",
+      budgetLimit: 1000,
+      milestones: 3,
+      defaultPricing: PENNY,
+      silent: true,
+      onWorthItStep: (controls) => {
+        calls += 1;
+        controls.completeMilestone();
+      },
+    });
+    await expect(safe.run("hello")).resolves.toEqual({ finalOutput: "done" });
+    expect(calls).toBe(3);
+  });
+
+  it("routes a worth-it trip through onTrip", async () => {
+    const safe = withCircuitBreaker(makeAgent({ __turns: 10, __tokensPerTurn: 100 }), {
+      mode: "worth-it",
+      budgetLimit: 1.0,
+      milestones: 4,
+      defaultPricing: PENNY,
+      silent: true,
+      onTrip: (ctx) => ({ finalOutput: "stopped", reason: ctx.reason }),
+    });
+    await expect(safe.run("hello")).resolves.toMatchObject({
+      finalOutput: "stopped",
+    });
+  });
+});

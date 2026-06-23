@@ -6,7 +6,15 @@
 //
 // Use the core CircuitBreaker class directly if you're building your own
 // adapter for a framework we don't ship yet.
-export { CircuitBreaker, CircuitBreakerError, defaultLogger } from "./core/index.js";
+export {
+  CircuitBreaker,
+  CircuitBreakerError,
+  createWorthItRunner,
+  defaultLogger,
+  isWorthItConfig,
+  ProgressTracker,
+  WorthItEngine,
+} from "./core/index.js";
 export type {
   BudgetGuardConfig,
   CircuitBreakerEvent,
@@ -18,12 +26,26 @@ export type {
   Metrics,
   Mode,
   ModeConfig,
+  ModelPricing,
   OnTrip,
+  OnWorthItStep,
+  OptimizeContextEvent,
+  PredictiveWarningEvent,
   ResolvedLimits,
   RetryEvent,
+  StepUsage,
   StopEvent,
   StopReason,
   TokenMetrics,
   TripContext,
+  TrippedEvent,
+  WorthItConfig,
+  WorthItControls,
+  WorthItMetrics,
+  WorthItRunner,
+  WorthItStepState,
+  WorthItWrapperConfig,
+  WorthItWrapperOptions,
+  WrapperModeConfig,
   WrapperOptions,
 } from "./core/index.js";

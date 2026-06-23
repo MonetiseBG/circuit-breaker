@@ -19,9 +19,31 @@ Behaviour is selected by **mode**:
   when the same state recurs more than `maxRetries` times (default 3). With
   `detectRepeatedState: false` it falls back to a raw iteration cap.
 
+- `worth-it` — a third `withCircuitBreaker` mode that works in **currency**, not
+  token counts. It costs each step (`C_s = (I·P_in + O·P_out) / 1e6`, with prices
+  quoted per 1M tokens in the currency's smallest unit, e.g. cents), smooths an
+  EMA, projects the run's total spend (`C_proj = C_cum + EMA·R_s`) against a
+  `budgetLimit`, and fires graduated events (`predictive_warning` at 0.70,
+  `optimize_context` at 0.85, `tripped` + throw at 0.95). Progress (`R_s`) is
+  developer-driven via a milestone API (the wrapper's `onWorthItStep` hook) — no
+  LLM self-reporting. Trips are *checkpoint & pause* (the engine isn't latched).
+
+The `worth-it` logic lives in a dedicated `WorthItEngine` (it has a different
+shape from the token-counting modes: cost, pricing, milestones). The core
+`CircuitBreaker` class is the single entry point for **all three** modes — in
+`worth-it` mode it delegates to an internal `WorthItEngine`, exposing
+`recordStep` / `completeMilestone` / `setCompletedMilestones` / `worthItMetrics`
+(the token/loop methods like `addTokens` throw a `TypeError` in `worth-it` mode,
+and vice versa). Each adapter branches on the mode: for `worth-it` it builds the
+engine via `createWorthItRunner` and feeds it each step's `{ input, output,
+model }`. The engine is also exported standalone at the `/worth-it` subpath for
+frameworks without an adapter.
+
 Decision logic lives in a framework-agnostic core; each agent framework gets
 its own thin adapter exposed as a subpath import. The breaker emits
-`CircuitBreakerEvent`s (`retry`, `stop`) for visibility into what it's doing.
+`CircuitBreakerEvent`s (`retry`, `stop` for the wrapper modes;
+`predictive_warning`, `optimize_context`, `tripped` for worth-it) for
+visibility into what it's doing.
 
 Current adapters:
 
@@ -41,9 +63,19 @@ Current adapters:
   `generateText`; drives the breaker off the injected `onStepFinish` (one step
   per LLM call) and aborts the tool-loop via the `abortSignal` option. Non-
   streaming only — `streamText` is not yet supported.
+- `@monetisebg/circuit-breaker/worth-it` — the `WorthItEngine` + `ProgressTracker`
+  + `createWorthItRunner` (cost-predictive mode). Used internally by every
+  adapter for `mode: "worth-it"`; also usable directly for frameworks without an
+  adapter (`recordStep` / `completeMilestone`).
 
-The package root (`@monetisebg/circuit-breaker`) exports only the core:
-`CircuitBreaker`, `CircuitBreakerError`, and the option/context types.
+Every adapter accepts `mode: "worth-it"` (with `budgetLimit`, `currency`,
+`milestones`, `pricing`/`defaultPricing`, and an optional `onWorthItStep` hook)
+in addition to the two token/loop modes. Pricing is per-1M-tokens in the
+currency's smallest unit (`ModelPricing.inputPerMToken` / `outputPerMToken`).
+
+The package root (`@monetisebg/circuit-breaker`) exports the core:
+`CircuitBreaker`, `CircuitBreakerError`, `WorthItEngine`, `ProgressTracker`,
+and the option/context types.
 
 ---
 
@@ -53,6 +85,7 @@ The package root (`@monetisebg/circuit-breaker`) exports only the core:
 src/
 ├── core/                  # Framework-agnostic decision logic.
 │   ├── breaker.ts         #   CircuitBreaker class — the single source of truth.
+│   ├── worth-it.ts        #   WorthItEngine + ProgressTracker (cost-predictive).
 │   ├── errors.ts          #   CircuitBreakerError.
 │   ├── logger.ts          #   defaultLogger (console.warn-based).
 │   ├── types.ts           #   Public types (Options, Metrics, TripContext, …).
@@ -80,10 +113,13 @@ src/
 │   ├── wrapper.ts         #   withCircuitBreaker(generateText, options) — wraps
 │   │                      #   generateText + onStepFinish + AbortController.
 │   └── index.ts
+├── worth-it/              # Worth-it mode (cost-predictive engine).
+│   └── index.ts           #   Subpath re-export of WorthItEngine + types.
 └── index.ts               # Root: re-exports core only.
 
 tests/
 ├── core/breaker.test.ts
+├── core/worth-it.test.ts
 ├── langchain/{callback,wrapper}.test.ts
 ├── openai-agents/wrapper.test.ts
 ├── claude-agent-sdk/wrapper.test.ts
@@ -93,7 +129,7 @@ tests/
 
 Build output goes to `dist/` with one ESM bundle, one CJS bundle, and one
 `.d.ts` per entry (`index`, `langchain`, `openai-agents`,
-`claude-agent-sdk`, `langgraph-sdk`, `vercel-ai-sdk`).
+`claude-agent-sdk`, `langgraph-sdk`, `vercel-ai-sdk`, `worth-it`).
 
 ---
 

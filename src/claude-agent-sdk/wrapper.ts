@@ -5,21 +5,32 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 
-import { CircuitBreaker, CircuitBreakerError } from "../core/index.js";
+import {
+  CircuitBreaker,
+  CircuitBreakerError,
+  createWorthItRunner,
+  isWorthItConfig,
+} from "../core/index.js";
 import type {
   CircuitBreakerOptions,
   EstimateInputTokens,
   OnTrip,
+  OnWorthItStep,
+  WorthItRunner,
+  WorthItWrapperConfig,
+  WorthItWrapperOptions,
   WrapperOptions,
 } from "../core/index.js";
 
 /**
  * Wrapper-specific options for the `@anthropic-ai/claude-agent-sdk` adapter.
- * The optional preflight `estimateInputTokens` receives the `QueryParams`
- * passed to the wrapped function.
+ * In `budget-guard` / `loop-killer` modes the optional preflight
+ * `estimateInputTokens` receives the `QueryParams`; in `worth-it` mode
+ * `onWorthItStep` receives each `assistant` message.
  */
 export type ClaudeAgentSdkWrapperOptions<TFallback = never> =
-  WrapperOptions<TFallback, QueryParams>;
+  | WrapperOptions<TFallback, QueryParams>
+  | WorthItWrapperOptions<TFallback, SDKAssistantMessage>;
 
 /** The argument shape of the SDK's `query` function. */
 export interface QueryParams {
@@ -63,6 +74,15 @@ export function withCircuitBreaker<TFallback = never>(
 ): WrappedQuery<TFallback> {
   const opts = options ?? {};
   const onTrip = opts.onTrip;
+
+  if (isWorthItConfig(opts)) {
+    const worthItOpts = opts;
+    const onWorthItStep = opts.onWorthItStep;
+    return function wrappedQuery(params: QueryParams) {
+      return runWithWorthIt(query, params, worthItOpts, onWorthItStep, onTrip);
+    };
+  }
+
   const estimate =
     opts.mode === "loop-killer" ? undefined : opts.estimateInputTokens;
   const breakerOpts = toBreakerOpts(opts);
@@ -70,6 +90,77 @@ export function withCircuitBreaker<TFallback = never>(
   return function wrappedQuery(params: QueryParams) {
     return runWithBreaker(query, params, breakerOpts, onTrip, estimate);
   };
+}
+
+async function* runWithWorthIt<TFallback>(
+  query: QueryFn,
+  params: QueryParams,
+  worthItOpts: WorthItWrapperConfig,
+  onWorthItStep: OnWorthItStep<SDKAssistantMessage> | undefined,
+  onTrip: OnTrip<TFallback> | undefined,
+): AsyncGenerator<SDKMessage | TFallback, void> {
+  const runner = createWorthItRunner(worthItOpts, onWorthItStep);
+
+  const controller = new AbortController();
+  const userController = params.options?.abortController;
+  if (userController) {
+    if (userController.signal.aborted) controller.abort();
+    else
+      userController.signal.addEventListener("abort", () => controller.abort(), {
+        once: true,
+      });
+  }
+
+  const stream = query({
+    ...params,
+    options: { ...params.options, abortController: controller },
+  });
+
+  let tripError: CircuitBreakerError | undefined;
+
+  try {
+    for await (const message of stream) {
+      yield message;
+      try {
+        driveWorthIt(runner, message);
+      } catch (err) {
+        if (err instanceof CircuitBreakerError) {
+          tripError = err;
+          controller.abort();
+          break;
+        }
+        throw err;
+      }
+    }
+  } catch (err) {
+    if (tripError === undefined) throw err;
+  }
+
+  if (tripError) {
+    if (onTrip) {
+      yield await onTrip(tripError.toContext());
+      return;
+    }
+    throw tripError;
+  }
+}
+
+function driveWorthIt(
+  runner: WorthItRunner<SDKAssistantMessage>,
+  message: SDKMessage,
+): void {
+  if (message.type !== "assistant") return;
+  const usage = message.message.usage;
+  if (!usage) return;
+  const model = message.message.model;
+  runner.recordStep(
+    {
+      input: inputTokens(usage),
+      output: usage.output_tokens ?? 0,
+      model: typeof model === "string" ? model : undefined,
+    },
+    message,
+  );
 }
 
 async function* runWithBreaker<TFallback>(
@@ -175,7 +266,7 @@ function summariseAssistant(message: SDKAssistantMessage): string | undefined {
 }
 
 function toBreakerOpts<R>(
-  opts: ClaudeAgentSdkWrapperOptions<R>,
+  opts: WrapperOptions<R, QueryParams>,
 ): CircuitBreakerOptions {
   if (opts.mode === "loop-killer") {
     const { onTrip: _onTrip, ...rest } = opts;

@@ -1,8 +1,17 @@
-import { CircuitBreaker, CircuitBreakerError } from "../core/index.js";
+import {
+  CircuitBreaker,
+  CircuitBreakerError,
+  createWorthItRunner,
+  isWorthItConfig,
+} from "../core/index.js";
 import type {
   CircuitBreakerOptions,
   EstimateInputTokens,
   OnTrip,
+  OnWorthItStep,
+  WorthItRunner,
+  WorthItWrapperConfig,
+  WorthItWrapperOptions,
   WrapperOptions,
 } from "../core/index.js";
 import { extractTokens } from "./tokens.js";
@@ -59,10 +68,9 @@ export interface LangGraphStreamArgs {
  * optional preflight `estimateInputTokens` receives the
  * {@link LangGraphStreamArgs} the wrapped `stream` was called with.
  */
-export type LangGraphSdkWrapperOptions<TFallback = never> = WrapperOptions<
-  TFallback,
-  LangGraphStreamArgs
->;
+export type LangGraphSdkWrapperOptions<TFallback = never> =
+  | WrapperOptions<TFallback, LangGraphStreamArgs>
+  | WorthItWrapperOptions<TFallback, LangGraphStreamChunk>;
 
 export interface WrappedRuns<TFallback = never> {
   stream(
@@ -102,6 +110,23 @@ export function withCircuitBreaker<TFallback = never>(
 ): WrappedRuns<TFallback> {
   const opts = options ?? {};
   const onTrip = opts.onTrip;
+
+  if (isWorthItConfig(opts)) {
+    const worthItOpts = opts;
+    const onWorthItStep = opts.onWorthItStep;
+    return {
+      stream(threadId, assistantId, payload) {
+        return runStreamWorthIt(
+          runs,
+          { threadId, assistantId, payload },
+          worthItOpts,
+          onWorthItStep,
+          onTrip,
+        );
+      },
+    };
+  }
+
   const estimate =
     opts.mode === "loop-killer" ? undefined : opts.estimateInputTokens;
   const breakerOpts = toBreakerOpts(opts);
@@ -117,6 +142,106 @@ export function withCircuitBreaker<TFallback = never>(
       );
     },
   };
+}
+
+async function* runStreamWorthIt<TFallback>(
+  runs: RunsLike,
+  args: LangGraphStreamArgs,
+  worthItOpts: WorthItWrapperConfig,
+  onWorthItStep: OnWorthItStep<LangGraphStreamChunk> | undefined,
+  onTrip: OnTrip<TFallback> | undefined,
+): AsyncGenerator<LangGraphStreamChunk | TFallback, void> {
+  const runner = createWorthItRunner(worthItOpts, onWorthItStep);
+
+  const { threadId, assistantId, payload } = args;
+  const userModes = normaliseModes(payload?.streamMode);
+  const injectedEvents = !userModes.includes("events");
+  const streamMode = injectedEvents ? [...userModes, "events"] : userModes;
+
+  const controller = new AbortController();
+  const userSignal = payload?.signal;
+  if (userSignal) {
+    if (userSignal.aborted) controller.abort();
+    else
+      userSignal.addEventListener("abort", () => controller.abort(), {
+        once: true,
+      });
+  }
+
+  const stream = runs.stream(threadId, assistantId, {
+    ...payload,
+    streamMode,
+    signal: controller.signal,
+  });
+
+  let tripError: CircuitBreakerError | undefined;
+  let runId: string | undefined;
+  let runThreadId = typeof threadId === "string" ? threadId : undefined;
+
+  try {
+    for await (const chunk of stream) {
+      if (chunk.event === "metadata") {
+        const meta = isRecord(chunk.data) ? chunk.data : undefined;
+        if (typeof meta?.["run_id"] === "string") runId = meta["run_id"];
+        if (typeof meta?.["thread_id"] === "string")
+          runThreadId = meta["thread_id"];
+      }
+
+      if (!(injectedEvents && isEventsChunk(chunk))) yield chunk;
+
+      try {
+        driveWorthIt(runner, chunk);
+      } catch (err) {
+        if (err instanceof CircuitBreakerError) {
+          tripError = err;
+          controller.abort();
+          await cancelRun(runs, runThreadId, runId);
+          break;
+        }
+        throw err;
+      }
+    }
+  } catch (err) {
+    if (tripError === undefined) throw err;
+  }
+
+  if (tripError) {
+    if (onTrip) {
+      yield await onTrip(tripError.toContext());
+      return;
+    }
+    throw tripError;
+  }
+}
+
+function driveWorthIt(
+  runner: WorthItRunner<LangGraphStreamChunk>,
+  chunk: LangGraphStreamChunk,
+): void {
+  if (!isEventsChunk(chunk)) return;
+  const event = chunk.data;
+  if (!isRecord(event)) return;
+
+  const name = event["event"];
+  if (name !== "on_chat_model_end" && name !== "on_llm_end") return;
+  const inner = isRecord(event["data"]) ? event["data"] : undefined;
+  const { input, output } = extractTokens(inner?.["output"]);
+  runner.recordStep({ input, output, model: modelFromEvent(inner) }, chunk);
+}
+
+/** Best-effort model id from a chat-model end event; else `defaultPricing`. */
+function modelFromEvent(inner: Record<string, unknown> | undefined): string | undefined {
+  const output = inner?.["output"];
+  if (isRecord(output)) {
+    const meta = output["response_metadata"];
+    if (isRecord(meta)) {
+      const name = meta["model_name"] ?? meta["model"] ?? meta["ls_model_name"];
+      if (typeof name === "string") return name;
+    }
+  }
+  const metadata = isRecord(inner?.["metadata"]) ? inner["metadata"] : undefined;
+  const lsModel = metadata?.["ls_model_name"];
+  return typeof lsModel === "string" ? lsModel : undefined;
 }
 
 async function* runStream<TFallback>(
@@ -286,7 +411,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function toBreakerOpts<R>(
-  opts: LangGraphSdkWrapperOptions<R>,
+  opts: WrapperOptions<R, LangGraphStreamArgs>,
 ): CircuitBreakerOptions {
   if (opts.mode === "loop-killer") {
     const { onTrip: _onTrip, ...rest } = opts;

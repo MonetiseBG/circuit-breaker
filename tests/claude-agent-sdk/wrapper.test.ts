@@ -277,3 +277,52 @@ describe("withCircuitBreaker (@anthropic-ai/claude-agent-sdk wrapper)", () => {
     });
   });
 });
+
+describe("withCircuitBreaker (claude-agent-sdk) — worth-it mode", () => {
+  const PENNY = { inputPerMToken: 0, outputPerMToken: 10000 }; // output: 0.01/token, input free
+
+  it("trips on projected budget overrun", async () => {
+    const safe = withCircuitBreaker(makeQuery({ turns: 10, tokensPerTurn: 100 }), {
+      mode: "worth-it",
+      budgetLimit: 1.0,
+      milestones: 4,
+      defaultPricing: PENNY,
+      silent: true,
+    });
+    await expect(collect(safe({ prompt: "hello" }))).rejects.toMatchObject({
+      reason: "budget_projection",
+      mode: "worth-it",
+    });
+  });
+
+  it("invokes onWorthItStep per assistant turn", async () => {
+    let calls = 0;
+    const safe = withCircuitBreaker(makeQuery({ turns: 3, tokensPerTurn: 10 }), {
+      mode: "worth-it",
+      budgetLimit: 1000,
+      milestones: 3,
+      defaultPricing: PENNY,
+      silent: true,
+      onWorthItStep: (controls) => {
+        calls += 1;
+        controls.completeMilestone();
+      },
+    });
+    const msgs = await collect(safe({ prompt: "hello" }));
+    expect(msgs.at(-1)).toMatchObject({ type: "result" });
+    expect(calls).toBe(3);
+  });
+
+  it("yields onTrip fallback as the final item", async () => {
+    const safe = withCircuitBreaker(makeQuery({ turns: 10, tokensPerTurn: 100 }), {
+      mode: "worth-it",
+      budgetLimit: 1.0,
+      milestones: 4,
+      defaultPricing: PENNY,
+      silent: true,
+      onTrip: () => ({ type: "result", subtype: "stopped" }),
+    });
+    const msgs = await collect(safe({ prompt: "hello" }));
+    expect(msgs.at(-1)).toMatchObject({ subtype: "stopped" });
+  });
+});
